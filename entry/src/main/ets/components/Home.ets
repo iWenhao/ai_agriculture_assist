@@ -63,39 +63,54 @@ export struct Home {
 
   // 获取天气数据
   private async loadWeather() {
-    console.log('=====请求开始');
     const httpRequest = http.createHttp();
-    // 替换为你的实际 API Key，101110101 为渭南城市 ID
-    const LocationID = '101110101'
-    const API_KEY = '2b5955f84f4842399f17983ee9f84264'
-    // const url = `https://n967cfxv4v.re.qweatherapi.com/v7/weather/now?location=${LocationID}`;
-    const url = 'https://sbtxqq.icu/api/qqtq.php?msg=%E8%A5%BF%E5%AE%89'
-    try {
-      const response = await httpRequest.request(url, {
-        method: http.RequestMethod.GET,
-        header: {
-          'X-QW-Api-Key': API_KEY        // 3. 全新鉴权规范：将 Key 放在 Header
-        }
-      });
-      console.log('response ====>', JSON.stringify(response))
-      if (response.responseCode === 200) {
-        // 使用类型断言，完美解决 arkts-no-any-unknown 警告
-        const res = JSON.parse(response.result as string) as WeatherResponse;
-        console.log('HTTP ====>', res)
-        if (res.code === 200) {
-          console.log('res==>', res);
-          this.weatherInfo = {
-            temp: res.now.temp,
-            text: res.now.text,
-            humidity: res.now.humidity
-          };
-        }
-      }
-    } catch (err) {
-      // console.error('天气请求失败', err);
-    } finally {
-      httpRequest.destroy();
-    }
+    // 使用 encodeURIComponent 对中文参数“杨凌”进行规范的 URL 编码
+    /*  const targetUrl = `http://gggg.bt1.886966.xyz/API/tqyb.php`;
+      let requestUrl = `${targetUrl}?msg=${encodeURIComponent('杨凌')}`*/
+    const city = '杨凌'
+    const targetUrl = `http://gggg.bt1.886966.xyz/API/tttt.php`;
+    let requestUrl = `${targetUrl}?city=${city}&n=1`
+    // 发起请求并等待响应结果
+    const response = await httpRequest.request(requestUrl, {
+      method: http.RequestMethod.GET,
+      expectDataType: http.HttpDataType.STRING, // 严格限制期望返回文本数据
+      connectTimeout: 8000, // 连接超时 8 秒
+      readTimeout: 8000    // 读取数据超时 8 秒
+    });
+    console.log('response>>>>>>', JSON.stringify(response))
+    // console.log('=====请求开始');
+    // const httpRequest = http.createHttp();
+    // // 替换为你的实际 API Key，101110101 为渭南城市 ID
+    // const LocationID = '101110101'
+    // const API_KEY = '2b5955f84f4842399f17983ee9f84264'
+    // // const url = `https://n967cfxv4v.re.qweatherapi.com/v7/weather/now?location=${LocationID}`;
+    // const url = 'https://sbtxqq.icu/api/qqtq.php?msg=%E8%A5%BF%E5%AE%89'
+    // try {
+    //   const response = await httpRequest.request(url, {
+    //     method: http.RequestMethod.GET,
+    //     header: {
+    //       'X-QW-Api-Key': API_KEY        // 3. 全新鉴权规范：将 Key 放在 Header
+    //     }
+    //   });
+    //   console.log('response ====>', JSON.stringify(response))
+    //   if (response.responseCode === 200) {
+    //     // 使用类型断言，完美解决 arkts-no-any-unknown 警告
+    //     const res = JSON.parse(response.result as string) as WeatherResponse;
+    //     console.log('HTTP ====>', res)
+    //     if (res.code === 200) {
+    //       console.log('res==>', res);
+    //       this.weatherInfo = {
+    //         temp: res.now.temp,
+    //         text: res.now.text,
+    //         humidity: res.now.humidity
+    //       };
+    //     }
+    //   }
+    // } catch (err) {
+    //   console.error('天气请求失败', err);
+    // } finally {
+    //   httpRequest.destroy();
+    // }
   }
 
   build() {
