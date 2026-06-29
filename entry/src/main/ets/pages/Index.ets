@@ -12,7 +12,6 @@ interface TabItem {
 @Entry
 @Component
 struct Index {
-  @State message: string = 'Hello World';
   private tabList: TabItem[] = [
     { title: '首页', icon: $r('app.media.home'), activeIcon: $r('app.media.home_active') },
     { title: 'AI问答', icon: $r('app.media.flower'), activeIcon: $r('app.media.flower_active') },
