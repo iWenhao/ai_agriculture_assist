@@ -1,18 +1,28 @@
 import { http } from '@kit.NetworkKit';
 
-// ================= 类型定义 (严格模式规范) =================
 
 // 天气内层数据接口
 interface WeatherNow {
-  temp: string;
-  text: string;
-  humidity: string;
+  district: string;   // 地区
+  temp: string;       // 温度
+  text: string;       // 天气状况
+  humidity: string;   // 湿度
+  windDir: string;    // 风向
+  windScale: string;  // 风力等级
+  aqi: string;        // AQI
+  aqiText: string;    // AQI 描述
+  body: string;       // 体感描述
 }
 
-// 和风天气 API 返回的整体结构接口
-interface WeatherResponse {
-  code: string | number;
-  now: WeatherNow;
+// 五天预报单日数据
+interface ForecastDay {
+  date: string;       // 日期
+  week: string;       // 星期
+  tempRange: string;  // 温度范围
+  text: string;       // 天气
+  aqi: string;        // AQI
+  windDir: string;    // 风向
+  windScale: string;  // 风力
 }
 
 interface ServiceItem {
@@ -33,6 +43,7 @@ interface NewsItem {
 export struct Home {
   // --- 状态变量 ---
   @State weatherInfo: WeatherNow | null = null;
+  @State forecastList: ForecastDay[] = [];
   // --- 静态数据 ---
   private serviceList: ServiceItem[] = [
     { name: "作物管理", icon: $r('app.media.corp') },
@@ -61,56 +72,141 @@ export struct Home {
     this.loadWeather();
   }
 
+  // 从纯文本中解析天气数据
+  private parseWeatherText(text: string): void {
+    const lines = text.split('\n');
+
+    // --- 解析实时天气 ---
+    let district = '';
+    let temp = '';
+    let weatherText = '';
+    let body = '';
+    let windDir = '';
+    let windScale = '';
+    let humidity = '';
+    let aqi = '';
+    let aqiText = '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('地区：')) {
+        district = trimmed.substring(3);
+      } else if (trimmed.startsWith('温度：') && temp === '') {
+        temp = trimmed.substring(3);
+      } else if (trimmed.startsWith('天气：') && weatherText === '') {
+        weatherText = trimmed.substring(3);
+      } else if (trimmed.startsWith('体感：')) {
+        body = trimmed.substring(3);
+      } else if (trimmed.startsWith('风向：') && windDir === '') {
+        windDir = trimmed.substring(3);
+      } else if (trimmed.startsWith('风力：') && windScale === '') {
+        windScale = trimmed.substring(3);
+      } else if (trimmed.startsWith('湿度：')) {
+        humidity = trimmed.substring(3);
+      } else if (trimmed.startsWith('AQI：') && aqi === '') {
+        const aqiStr = trimmed.substring(4);
+        // AQI 格式如 “49 优”，用最后一个空格分隔数值和描述
+        const lastSpace = aqiStr.lastIndexOf(' ');
+        if (lastSpace > -1) {
+          aqi = aqiStr.substring(0, lastSpace);
+          aqiText = aqiStr.substring(lastSpace + 1);
+        } else {
+          aqi = aqiStr;
+        }
+      }
+    }
+
+    this.weatherInfo = {
+      district: district,
+      temp: temp,
+      text: weatherText,
+      humidity: humidity,
+      windDir: windDir,
+      windScale: windScale,
+      aqi: aqi,
+      aqiText: aqiText,
+      body: body
+    };
+
+    // --- 解析五天预报 ---
+    const forecast: ForecastDay[] = [];
+    let curDate = '';
+    let curWeek = '';
+    let curTempRange = '';
+    let curText = '';
+    let curAqi = '';
+    let curWindDir = '';
+    let curWindScale = '';
+
+    let inForecast = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === '五天预报：') {
+        inForecast = true;
+        continue;
+      }
+      if (!inForecast) {
+        continue;
+      }
+      if (trimmed === '') {
+        if (curDate !== '') {
+          forecast.push({ date: curDate, week: curWeek, tempRange: curTempRange, text: curText, aqi: curAqi, windDir: curWindDir, windScale: curWindScale });
+          curDate = ''; curWeek = ''; curTempRange = ''; curText = ''; curAqi = ''; curWindDir = ''; curWindScale = '';
+        }
+        continue;
+      }
+      if (trimmed.startsWith('日期：')) {
+        if (curDate !== '') {
+          forecast.push({ date: curDate, week: curWeek, tempRange: curTempRange, text: curText, aqi: curAqi, windDir: curWindDir, windScale: curWindScale });
+          curDate = ''; curWeek = ''; curTempRange = ''; curText = ''; curAqi = ''; curWindDir = ''; curWindScale = '';
+        }
+        curDate = trimmed.substring(3);
+      } else if (trimmed.startsWith('星期：')) {
+        curWeek = trimmed.substring(3);
+      } else if (trimmed.startsWith('温度：')) {
+        curTempRange = trimmed.substring(3);
+      } else if (trimmed.startsWith('天气：')) {
+        curText = trimmed.substring(3);
+      } else if (trimmed.startsWith('AQI：')) {
+        curAqi = trimmed.substring(4);
+      } else if (trimmed.startsWith('风向：')) {
+        curWindDir = trimmed.substring(3);
+      } else if (trimmed.startsWith('风力：')) {
+        curWindScale = trimmed.substring(3);
+      }
+    }
+    // 别漏掉最后一天
+    if (curDate !== '') {
+      forecast.push({ date: curDate, week: curWeek, tempRange: curTempRange, text: curText, aqi: curAqi, windDir: curWindDir, windScale: curWindScale });
+    }
+    this.forecastList = forecast;
+    console.log('weatherInfo parsed:', JSON.stringify(this.weatherInfo));
+    console.log('forecastList parsed:', JSON.stringify(this.forecastList));
+  }
+
   // 获取天气数据
   private async loadWeather() {
     const httpRequest = http.createHttp();
-    // 使用 encodeURIComponent 对中文参数“杨凌”进行规范的 URL 编码
-    /*  const targetUrl = `http://gggg.bt1.886966.xyz/API/tqyb.php`;
-      let requestUrl = `${targetUrl}?msg=${encodeURIComponent('杨凌')}`*/
-    const city = '杨凌'
+    const city = '杨凌';
     const targetUrl = `http://gggg.bt1.886966.xyz/API/tttt.php`;
-    let requestUrl = `${targetUrl}?city=${city}&n=1`
-    // 发起请求并等待响应结果
-    const response = await httpRequest.request(requestUrl, {
-      method: http.RequestMethod.GET,
-      expectDataType: http.HttpDataType.STRING, // 严格限制期望返回文本数据
-      connectTimeout: 8000, // 连接超时 8 秒
-      readTimeout: 8000    // 读取数据超时 8 秒
-    });
-    console.log('response>>>>>>', JSON.stringify(response))
-    // console.log('=====请求开始');
-    // const httpRequest = http.createHttp();
-    // // 替换为你的实际 API Key，101110101 为渭南城市 ID
-    // const LocationID = '101110101'
-    // const API_KEY = '2b5955f84f4842399f17983ee9f84264'
-    // // const url = `https://n967cfxv4v.re.qweatherapi.com/v7/weather/now?location=${LocationID}`;
-    // const url = 'https://sbtxqq.icu/api/qqtq.php?msg=%E8%A5%BF%E5%AE%89'
-    // try {
-    //   const response = await httpRequest.request(url, {
-    //     method: http.RequestMethod.GET,
-    //     header: {
-    //       'X-QW-Api-Key': API_KEY        // 3. 全新鉴权规范：将 Key 放在 Header
-    //     }
-    //   });
-    //   console.log('response ====>', JSON.stringify(response))
-    //   if (response.responseCode === 200) {
-    //     // 使用类型断言，完美解决 arkts-no-any-unknown 警告
-    //     const res = JSON.parse(response.result as string) as WeatherResponse;
-    //     console.log('HTTP ====>', res)
-    //     if (res.code === 200) {
-    //       console.log('res==>', res);
-    //       this.weatherInfo = {
-    //         temp: res.now.temp,
-    //         text: res.now.text,
-    //         humidity: res.now.humidity
-    //       };
-    //     }
-    //   }
-    // } catch (err) {
-    //   console.error('天气请求失败', err);
-    // } finally {
-    //   httpRequest.destroy();
-    // }
+    const requestUrl = `${targetUrl}?city=${city}&n=1`;
+    try {
+      console.log('=====天气请求开始');
+      const response = await httpRequest.request(requestUrl, {
+        method: http.RequestMethod.GET,
+        expectDataType: http.HttpDataType.STRING,
+        connectTimeout: 8000,
+        readTimeout: 8000
+      });
+      console.log('response>>>>>>', JSON.stringify(response));
+      if (response.responseCode === 200) {
+        this.parseWeatherText(response.result as string);
+      }
+    } catch (err) {
+      console.error('天气请求失败', err);
+    } finally {
+      httpRequest.destroy();
+    }
   }
 
   build() {
@@ -132,6 +228,83 @@ export struct Home {
             .margin({ left: 20 })
         }
 
+        // --- 实时天气卡片 ---
+        Column({ space: 10 }) {
+          // 标题行：地区 + AQI 标签
+          Row() {
+            Text(this.weatherInfo ? this.weatherInfo.district : '天气加载中...')
+              .fontSize(18).fontWeight(FontWeight.Bold).fontColor('#333333')
+            Blank()
+            if (this.weatherInfo && this.weatherInfo.aqi) {
+              Text(`AQI ${this.weatherInfo.aqi} ${this.weatherInfo.aqiText}`)
+                .fontSize(12).fontColor('#fff')
+                .backgroundColor(this.weatherInfo.aqiText === '优' ? '#4CAF50' : '#FF9800')
+                .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+                .borderRadius(10)
+            }
+          }
+          .width('100%')
+
+          if (this.weatherInfo) {
+            // 核心温度 + 天气状况
+            Row() {
+              Text(this.weatherInfo.temp)
+                .fontSize(42).fontWeight(FontWeight.Bold).fontColor('#FF6B35')
+              Text(`℃\n${this.weatherInfo.text}`)
+                .fontSize(16).fontColor('#666666').margin({ left: 4 })
+              Blank()
+              // 体感提示
+              if (this.weatherInfo.body) {
+                Text(this.weatherInfo.body)
+                  .fontSize(12).fontColor('#999999').maxLines(2)
+                  .constraintSize({ maxWidth: '40%' }).textAlign(TextAlign.End)
+              }
+            }
+            .width('100%')
+
+            // 详细信息行
+            Row() {
+              Text(`💧 湿度 ${this.weatherInfo.humidity}`)
+                .fontSize(13).fontColor('#666')
+              Text(`🌬 ${this.weatherInfo.windDir} ${this.weatherInfo.windScale}`)
+                .fontSize(13).fontColor('#666')
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.SpaceBetween)
+          } else {
+            Text('正在获取天气数据...')
+              .fontSize(14).fontColor('#999999')
+              .width('100%').textAlign(TextAlign.Center)
+              .padding(20)
+          }
+
+          // --- 五天预报 ---
+          if (this.forecastList.length > 0) {
+            Column({ space: 8 }) {
+              Text('未来五天').fontSize(14).fontWeight(FontWeight.Bold).fontColor('#333')
+                .width('100%').margin({ top: 4 })
+              ForEach(this.forecastList, (day: ForecastDay) => {
+                Row() {
+                  Text(day.date).fontSize(13).fontColor('#333').width(50)
+                  Text(day.week).fontSize(13).fontColor('#999').width(40)
+                  Text(day.text).fontSize(13).fontColor('#333').width(60)
+                  Text(day.tempRange).fontSize(13).fontColor('#FF6B35')
+                  Blank()
+                  Text(`${day.windDir} ${day.windScale}`).fontSize(12).fontColor('#999')
+                }
+                .width('100%')
+                .padding({ top: 6, bottom: 6 })
+              })
+            }
+            .width('100%')
+          }
+        }
+        .width('100%')
+        .padding(20)
+        .backgroundColor('#FFF')
+        .borderRadius(10)
+        .border({ width: { left: 4 }, color: '#FF9E00' })
+
         // --- 农事建议 ---
         Row({ space: 5 }) {
           Column({ space: 8 }) {
@@ -146,7 +319,7 @@ export struct Home {
               .fontColor('#666666')
           }
           .alignItems(HorizontalAlign.Start)
-          .layoutWeight(1) // 自动推开右侧
+          .layoutWeight(1)
 
           Column({ space: 5 }) {
             Image($r('app.media.sun')).width(30)
