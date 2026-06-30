@@ -501,6 +501,7 @@ export struct Qna {
         })
       }
       .layoutWeight(1)
+      .height('100%')
       .width('100%')
       .padding({
         left: 12,
