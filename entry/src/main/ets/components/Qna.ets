@@ -1,4 +1,4 @@
-// AI农技问答组件 - 实现聊天对话及SSE流式打字机效果
+// AI农技问答组件
 import { http } from '@kit.NetworkKit';
 import { AGINES_API_URL, AGINES_MODEL, AGINES_API_KEY, SYSTEM_PROMPT } from '../common/Constants';
 import { nowTime, extractDelta, stripMarkdown } from '../common/Utils'
@@ -8,7 +8,7 @@ type MsgRole = 'user' | 'ai';
 
 // 单条消息的数据结构
 interface ChatMessage {
-  role: MsgRole;
+  role: MsgRole;  // 角色
   text: string; // 消息内容
   time: string // 时间戳
 }
@@ -45,7 +45,7 @@ export struct Qna {
   }
 
   // --- 业务逻辑：发送请求 ---
-  private async onSend(): Promise<void> {
+  private async onSend(): Promise<void> {  // 无返回值的异步执行网络请求
     const q = this.inputText.trim();
     // 防呆处理：内容为空或正在加载时直接返回
     if (q.length === 0 || this.loading) {
@@ -57,31 +57,39 @@ export struct Qna {
     this.inputText = '';
     this.loading = true;
 
-    // 2. 更新UI：添加一条空的AI消息（用于后续流式填充，实现打字机效果）
+    // 2. 更新UI：添加一条空的AI消息
+    // 为什么？
+    /*   解决“状态管理”的痛点（最核心原因）
+    在 ArkUI中，如果我们不提前创建这条消息，而是等网络数据第一次返回时再往列表里 push 一条新消息，会引发严重的 UI 刷新问题：
+    如果不提前占坑：每次收到一小块数据（比如一个字），你都需要执行 push 操作。这会导致列表频繁地新增节点，不仅性能极差，还会导致列表闪烁或滚动卡顿。
+    提前占坑的好处：我们在发送请求前，就 push 了一条 text: '' 的空消息。这样列表的结构就已经固定了。后续网络返回数据时，我们只需要修改最后一条数据的 text 属性（即 appendAiText 方法），而不会触发列表的增删操作，UI 刷新会非常丝滑。
+         提供即时的“加载反馈”（用户体验）
+    网络请求是需要时间的（哪怕只有 0.5 秒）。
+    如果等数据返回了才显示气泡，用户点击发送后，界面会“僵死”半秒钟，体验很差。
+    提前推入一条空消息，我们的 UI 可以立刻判断：如果 msg.text.length === 0，就显示一个 LoadingProgress（转圈圈）和“AI 正在思考…”的提示。这能给用户一个即时的视觉反馈，让他们知道系统正在工作。*/
     const aiTime = nowTime();
     this.messageList.push({ role: 'ai', text: '', time: aiTime });
-    this.scrollToBottom();
-
+    this.scrollToBottom(); // 滚动到聊天底部
     // 3. 构造请求体 (只保留最近6条消息，防止上下文过长)
-    const messages: AginesMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
-    const recent = this.messageList.slice(-6); // 取最后6条
-    for (const msg of recent) {
-      // 将 'ai' 角色映射为 'assistant' 以符合OpenAI/Agines格式
-      messages.push({ role: msg.role === 'ai' ? 'assistant' : msg.role, content: msg.text });
-    }
+     const messages: AginesMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+     const recent = this.messageList.slice(-6); // 取最后6条
+     for (const msg of recent) {
+       // 将 'ai' 角色映射为 'assistant' 以符合OpenAI/Agines格式
+       messages.push({ role: msg.role === 'ai' ? 'assistant' : msg.role, content: msg.text });
+     }
 
-    const requestBody: AginesRequestBody = {
-      model: AGINES_MODEL,
-      messages
-    };
+     const requestBody: AginesRequestBody = {
+       model: AGINES_MODEL,
+       messages
+     };
 
-    try {
-      // 调用非流式请求方法（为了解决预览器兼容性及类型报错）
-      await this.sendNormalRequest(requestBody);
-    } catch (err) {
-      console.error('=====请求失败=====', err);
-      this.loading = false;
-    }
+     try {
+       // 调用非流式请求方法（为了解决预览器兼容性及类型报错）
+       await this.sendNormalRequest(requestBody);
+     } catch (err) {
+       console.error('=====请求失败=====', err);
+       this.loading = false;
+     }
   }
 
   // --- 网络请求：非流式 ---
@@ -134,7 +142,7 @@ export struct Qna {
 
   // --- 工具方法 ---
 
-  // 追加AI文字（核心：实现打字机效果和UI刷新）
+  // 追加AI文字（核心：UI刷新）
   private appendAiText(delta: string): void {
     if (this.messageList.length === 0) {
       return;
@@ -193,7 +201,7 @@ export struct Qna {
   }
 
   // AI气泡公共样式
-  @Styles
+  @Styles  // 定义组件重用样式的装饰器
   aiBubbleStyle() {
     .padding({
       left: 14,
@@ -208,7 +216,7 @@ export struct Qna {
       bottomLeft: 12,
       bottomRight: 12
     })
-    .constraintSize({ maxWidth: '88%' })
+    .constraintSize({ maxWidth: '88%' }) //为组件设置一个约束尺寸，规定它的最大宽度不能超过其父容器宽度的 88%
     .shadow({ radius: 4, color: 'rgba(0,0,0,0.05)', offsetY: 2 })
   }
 
@@ -249,6 +257,7 @@ export struct Qna {
   MessageItem(msg: ChatMessage) {
     if (msg.role === 'user') {
       Row() {
+        // Blank() 是一个特殊的弹性间隔组件，它本身不显示任何内容，但它的核心作用是自动撑满父容器内未被其他子组件占用的剩余空间
         Blank() // 占位符，推到右侧
         this.UserBubble(msg)
       }
@@ -267,7 +276,7 @@ export struct Qna {
   InputBar() {
     Row({ space: 10 }) {
       // TextArea：多行输入框
-      // 修复：使用 padding 撑开高度以实现 placeholder 垂直居中
+      // 使用 padding 撑开高度以实现 placeholder 垂直居中
       TextArea({ placeholder: '咨询农技难题...', text: this.inputText })
         .padding({
           top: 15,
@@ -275,7 +284,7 @@ export struct Qna {
           left: 12,
           right: 12
         })
-        .layoutWeight(1)
+        .layoutWeight(1) // 占满
         .fontSize(14)
         .fontColor('#1a1c1c')
         .placeholderColor('#AAAAAA')
@@ -314,6 +323,12 @@ export struct Qna {
   build() {
     Column() {
       // 消息列表
+      // Scroller 控制器
+      // this.scroller.scrollEdge(Edge.Bottom);
+     /* Edge.Top：滚动到顶部（在垂直滚动中，Edge.Start 的效果与 Edge.Top 完全相同）。
+      Edge.Bottom：滚动到底部（在垂直滚动中，Edge.End 的效果与 Edge.Bottom 完全相同）。
+      Edge.Start：滚动到起始边缘（如果是横向滚动，就是最左侧）。
+      Edge.End：滚动到结束边缘（如果是横向滚动，就是最右侧）。*/
       List({ space: 16, scroller: this.scroller }) {
         ForEach(this.messageList, (msg: ChatMessage) => {
           ListItem() {
@@ -321,7 +336,7 @@ export struct Qna {
           }
         })
       }
-      .layoutWeight(1)
+      .layoutWeight(1) // 占满上部空间
       .height('100%')
       .width('100%')
       .padding({
