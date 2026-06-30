@@ -1,11 +1,11 @@
 // 全局常量配置
 
-// 智谱 GLM 大模型接口配置
-// 1. 注册并获取 API Key：https://bigmodel.cn -> 控制台 -> API Keys
-// 2. 将下方 GLM_API_KEY 替换为你自己的 Key
-export const GLM_API_URL: string = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
-export const GLM_MODEL: string = 'glm-4-flash' // 免费模型，适合课程项目
-export const GLM_API_KEY: string = '在此填入你的智谱 API Key'
+// Agines (Agnes AI) 大模型接口配置
+// 1. 获取 API Key：https://agnes-ai.com
+// 2. 将下方 AGINES_API_KEY 替换为你自己的 Key
+export const AGINES_API_URL: string = 'https://apihub.agnes-ai.com/v1/chat/completions'  // 请替换为 Agines 提供的实际接口地址
+export const AGINES_MODEL: string = 'agnes-2.0-flash'  // 或你实际使用的模型名
+export const AGINES_API_KEY: string = 'sk-qhdvVWfG4B7sT85kKPcIk1UDzUZvdZhU4e6kkA0pKAPN3t0o'
 
 // 系统提示词：约束 AI 扮演农技专家，直接返回纯文本回答
 export const SYSTEM_PROMPT: string =

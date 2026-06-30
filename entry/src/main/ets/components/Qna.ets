@@ -1,7 +1,7 @@
 // AI农技问答（聊天对话式 + SSE 流式打字机效果）
 
 import { http } from '@kit.NetworkKit';
-import { GLM_API_URL, GLM_MODEL, GLM_API_KEY, SYSTEM_PROMPT } from '../common/Constants';
+import { AGINES_API_URL, AGINES_MODEL, AGINES_API_KEY, SYSTEM_PROMPT } from '../common/Constants';
 import { util } from '@kit.ArkTS';
 
 // 消息角色
@@ -14,16 +14,16 @@ interface ChatMessage {
   time: string
 }
 
-// GLM 请求消息
-interface GlmMessage {
+// Agines 请求消息
+interface AginesMessage {
   role: string;
   content: string;
 }
 
-// GLM 请求体
-interface GlmRequestBody {
+// Agines 请求体
+interface AginesRequestBody {
   model: string;
-  messages: GlmMessage[];
+  messages: AginesMessage[];
   stream: boolean;
 }
 
@@ -77,8 +77,8 @@ export struct Qna {
     });
     this.scrollToBottom();
 
-    // 构造 GLM 请求体
-    const messages: GlmMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+    // 构造 Agines 请求体
+    const messages: AginesMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
     const recent = this.messageList.slice(-6);
     for (const msg of recent) {
       if (msg.role === 'user') {
@@ -88,32 +88,50 @@ export struct Qna {
       }
     }
 
-    const requestBody: GlmRequestBody = {
-      model: GLM_MODEL,
+    const requestBody: AginesRequestBody = {
+      model: AGINES_MODEL,
       messages: messages,
       stream: true  // 开启 SSE 流式输出
     };
 
-    // 重置 SSE 缓冲
-    this.sseBuffer = '';
+    try {
+      // 先尝试流式（真机/模拟器有效）
+      await this.sendStreamRequest(requestBody);
+    } catch (err) {
+      console.error('流式请求失败，降级为非流式请求', err);
+      // 预览器不支持流式，降级为普通请求（非流式）
+      try {
+        await this.sendNormalRequest(requestBody);
+      } catch (err2) {
+        console.error('非流式请求也失败', err2);
+        this.loading = false;
+      }
+    }
+  }
 
-    // http 2: http.createHttp()创建连接
+  // 流式请求：真机/模拟器使用 requestInStream
+  private async sendStreamRequest(requestBody: AginesRequestBody): Promise<void> {
+    this.sseBuffer = '';
     const httpRequest = http.createHttp();
 
-    // SSE 流式接收：每收到一块数据就解析并追加文字
+    // 监听 HTTP 响应头
+    httpRequest.on('headersReceive', (header) => {
+      console.log('=====HTTP headersReceive=====', JSON.stringify(header));
+    });
+
+    // SSE 流式接收
     httpRequest.on('dataReceive', (data: ArrayBuffer) => {
-      // ArrayBuffer → 字符串（decodeToString 直接返回 string）
       const chunk = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(data), { stream: false });
-      // 拼接到缓冲（数据可能跨块）
+      console.log('=====收到数据块=====', chunk);
+      console.log('=====数据块长度=====', chunk.length);
       this.sseBuffer += chunk;
-      // 按行分割，处理完整的 SSE 行
       this.processSSELines();
     });
 
     // 流式结束
     httpRequest.on('dataEnd', () => {
       console.log('=====SSE 流式结束======');
-      // 处理缓冲中可能残留的最后一行
+      console.log('=====残留缓冲=====', this.sseBuffer);
       if (this.sseBuffer.trim().length > 0) {
         this.processSSELines();
       }
@@ -121,66 +139,139 @@ export struct Qna {
       this.loading = false;
     });
 
-    try {
-      console.log('=====SSE 流式请求开始======');
-      await httpRequest.request(GLM_API_URL, {
-        method: http.RequestMethod.POST,
-        header: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GLM_API_KEY}`,
-          'Accept': 'text/event-stream'
-        },
-        extraData: JSON.stringify(requestBody),
-        expectDataType: http.HttpDataType.ARRAY_BUFFER
-      });
-    } catch (err) {
-      console.error('SSE 请求失败', err);
-      // 失败时直接显示错误信息到 AI 消息
-      this.appendAiText('请求失败，请检查网络或 API Key 配置');
+    console.log('=====SSE 流式请求开始======');
+    const responseCode = await httpRequest.requestInStream(AGINES_API_URL, {
+      method: http.RequestMethod.POST,
+      header: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${AGINES_API_KEY}`,
+        'Accept': 'text/event-stream'
+      },
+      extraData: JSON.stringify(requestBody),
+      expectDataType: http.HttpDataType.ARRAY_BUFFER
+    });
+    console.log('=====HTTP requestInStream 返回状态码=====', responseCode);
+    if (responseCode !== 200) {
+      console.error('=====HTTP 请求失败，状态码=====', responseCode);
+      this.appendAiText(`请求失败，状态码: ${responseCode}`);
       httpRequest.destroy();
       this.loading = false;
     }
   }
 
-  // 处理 SSE 缓冲中的完整行
-  private processSSELines(): void {
-    // SSE 格式：每行 "data: {...}\n\n"，以双换行分隔
-    const lines = this.sseBuffer.split('\n');
-    // 最后一个元素可能是不完整的行，保留在缓冲中
-    this.sseBuffer = lines.pop() ?? '';
+  // 非流式请求：预览器 fallback（普通 request，一次性返回完整 JSON）
+  private async sendNormalRequest(requestBody: AginesRequestBody): Promise<void> {
+    const httpRequest = http.createHttp();
+    try {
+      // 非流式：stream 设为 false
+      const normalBody: AginesRequestBody = {
+        model: requestBody.model,
+        messages: requestBody.messages,
+        stream: false
+      };
+      console.log('=====非流式请求开始======');
+      const response = await httpRequest.request(AGINES_API_URL, {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${AGINES_API_KEY}`
+        },
+        extraData: JSON.stringify(normalBody),
+        expectDataType: http.HttpDataType.STRING
+      });
+      console.log('=====非流式响应状态码=====', response.responseCode);
+      if (response.responseCode === 200) {
+        const resultStr = response.result as string;
+        console.log('=====非流式响应内容=====', resultStr);
+        const content = this.extractDelta(resultStr);
+        if (content.length > 0) {
+          this.appendAiText(content);
+        } else {
+          this.appendAiText('（未获取到有效回答）');
+        }
+      } else {
+        console.error('=====非流式请求失败=====', response.result);
+        this.appendAiText(`请求失败，状态码: ${response.responseCode}`);
+      }
+    } catch (err) {
+      console.error('非流式请求失败', err);
+      this.appendAiText('请求失败，请检查网络或 API Key 配置');
+    } finally {
+      httpRequest.destroy();
+      this.loading = false;
+    }
+  }
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('data: ')) {
-        const payload = trimmed.substring(6);
-        // 智谱 SSE 结束标志
-        if (payload === '[DONE]') {
-          return;
+  // 处理 SSE 缓冲中的完整行，同时兼容普通 JSON 响应
+  private processSSELines(): void {
+    // 检查是否是 SSE 格式（包含 data: 行）
+    const hasSSEFormat = this.sseBuffer.includes('data: ');
+
+    if (hasSSEFormat) {
+      const lines = this.sseBuffer.split('\n');
+      this.sseBuffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          const payload = trimmed.substring(6);
+          if (payload === '[DONE]') {
+            return;
+          }
+          const delta = this.extractDelta(payload);
+          if (delta.length > 0) {
+            this.appendAiText(delta);
+          }
         }
-        // 解析 delta.content
-        const delta = this.extractDelta(payload);
-        if (delta.length > 0) {
-          this.appendAiText(delta);
+      }
+    } else {
+      // 尝试作为普通 JSON 解析（非 SSE 流式响应）
+      const trimmed = this.sseBuffer.trim();
+      if (trimmed.length > 0) {
+        const content = this.extractDelta(trimmed);
+        if (content.length > 0) {
+          this.appendAiText(content);
         }
+        this.sseBuffer = '';
       }
     }
   }
 
-  // 从单条 SSE data 中提取 delta.content
+  // 从单条 SSE data 或普通 JSON 中提取文本内容
   private extractDelta(jsonStr: string): string {
     try {
       const obj = JSON.parse(jsonStr) as Record<string, Object>;
       const choices = obj['choices'];
       if (Array.isArray(choices) && choices.length > 0) {
         const first = choices[0] as Record<string, Object>;
+        // SSE 流式格式：delta.content
         const delta = first['delta'] as Record<string, Object>;
-        const content = delta['content'];
-        if (typeof content === 'string') {
-          return content;
+        if (delta) {
+          const content = delta['content'];
+          if (typeof content === 'string') {
+            return content;
+          }
+        }
+        // 普通 JSON 格式：message.content
+        const message = first['message'] as Record<string, Object>;
+        if (message) {
+          const content = message['content'];
+          if (typeof content === 'string') {
+            return content;
+          }
+        }
+      }
+      // 错误响应
+      if (obj['error']) {
+        const error = obj['error'] as Record<string, Object>;
+        const errMsg = error['message'];
+        if (typeof errMsg === 'string') {
+          return `【API 错误】${errMsg}`;
         }
       }
     } catch (err) {
-      // JSON 解析失败（极少），忽略
+      console.error('JSON 解析失败:', err);
+      console.error('原始字符串:', jsonStr);
     }
     return '';
   }
@@ -192,11 +283,11 @@ export struct Qna {
     }
     const last = this.messageList[this.messageList.length - 1];
     if (last.role === 'ai') {
-      this.messageList[this.messageList.length - 1] = {
-        role: 'ai',
-        text: last.text + delta,
-        time: last.time
-      };
+      // ArkTS 中直接修改数组元素不会触发 UI 刷新，必须重新赋值数组
+      const newMsg: ChatMessage = { role: 'ai', text: last.text + delta, time: last.time };
+      const newList: ChatMessage[] = this.messageList.slice(0, -1);
+      newList.push(newMsg);
+      this.messageList = newList;
       this.scrollToBottom();
     }
   }
