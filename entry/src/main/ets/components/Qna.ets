@@ -98,12 +98,13 @@ export struct Qna {
       // 先尝试流式（真机/模拟器有效）
       await this.sendStreamRequest(requestBody);
     } catch (err) {
-      console.error('流式请求失败，降级为非流式请求', err);
+      console.error('=====流式请求失败，降级为非流式请求=====', err);
+      console.error('=====流式请求失败类型=====', typeof err);
       // 预览器不支持流式，降级为普通请求（非流式）
       try {
         await this.sendNormalRequest(requestBody);
       } catch (err2) {
-        console.error('非流式请求也失败', err2);
+        console.error('=====非流式请求也失败=====', err2);
         this.loading = false;
       }
     }
@@ -132,6 +133,13 @@ export struct Qna {
     httpRequest.on('dataEnd', () => {
       console.log('=====SSE 流式结束======');
       console.log('=====残留缓冲=====', this.sseBuffer);
+      // 检测：收到 dataEnd 但 buffer 为空 → 预览器 mock 数据为空，降级到非流式
+      if (this.sseBuffer.trim().length === 0) {
+        console.log('=====预览器环境：降级为非流式请求=====');
+        httpRequest.destroy();
+        this.sendNormalRequest(requestBody);
+        return;
+      }
       if (this.sseBuffer.trim().length > 0) {
         this.processSSELines();
       }
@@ -180,8 +188,14 @@ export struct Qna {
         expectDataType: http.HttpDataType.STRING
       });
       console.log('=====非流式响应状态码=====', response.responseCode);
+      console.log('=====非流式响应 result 类型=====', typeof response.result);
       if (response.responseCode === 200) {
-        const resultStr = response.result as string;
+        let resultStr: string = '';
+        if (typeof response.result === 'string') {
+          resultStr = response.result as string;
+        } else if (response.result) {
+          resultStr = JSON.stringify(response.result);
+        }
         console.log('=====非流式响应内容=====', resultStr);
         const content = this.extractDelta(resultStr);
         if (content.length > 0) {
