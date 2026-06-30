@@ -10,16 +10,16 @@ type MsgRole = 'user' | 'ai';
 // 单条消息：用户消息用 text；AI 消息用 answer
 interface ChatMessage {
   role: MsgRole;
-  text: string;          // 用户消息文本（AI 消息为空）
+  text: string; // 用户消息文本（AI 消息为空）
   answer: AIAnswer | null; // AI 回答（用户消息为空）
-  time: string;          // 显示时间
+  time: string; // 显示时间
 }
 
 // AI 回答结构（对应设计稿：初步诊断 / 主要诱因 / 专家建议）
 interface AIAnswer {
-  diagnosis: string;     // 初步诊断
-  detail: string;        // 诊断详细说明
-  causes: string[];      // 主要诱因列表
+  diagnosis: string; // 初步诊断
+  detail: string; // 诊断详细说明
+  causes: string[]; // 主要诱因列表
   suggestions: string[]; // 专家建议列表
 }
 
@@ -37,28 +37,20 @@ interface GlmRequestBody {
 
 @Component
 export struct Qna {
-  // --- 设计稿配色（来自 DESIGN.md） ---
-  private readonly C_PRIMARY: string = '#0d631b';          // 主色：农业深绿
-  private readonly C_PRIMARY_CONTAINER: string = '#2e7d32';// 绿色气泡
-  private readonly C_SECONDARY: string = '#f89c00';        // 金色：高价值AI洞察
-  private readonly C_BG: string = '#f9f9f9';               // 背景冷灰
-  private readonly C_GREEN_TINT: string = '#f1f8e9';       // AI卡片渐变浅绿
-  private readonly C_CARD: string = '#f3f3f3';             // 小卡片背景
-  private readonly C_TEXT: string = '#1a1c1c';             // 主文本
-  private readonly C_TEXT_SUB: string = '#40493d';         // 次级文本
-  private readonly C_OUTLINE: string = '#bfcaba';          // 分割线/时间
-
-  // 底部推荐追问 chip（参照设计稿）
-  private suggestChips: string[] = [
-    '如何具体施药？',
-    '预防下季感染？',
-    '查看周边疫情'
-  ];
-
+  // --- 设计稿配色 ---
+  private readonly C_PRIMARY: string = '#0d631b'; // 主色：农业深绿
+  private readonly C_PRIMARY_CONTAINER: string = '#2e7d32'; // 绿色气泡
+  private readonly C_SECONDARY: string = '#f89c00'; // 金色：高价值AI洞察
+  private readonly C_BG: string = '#f9f9f9'; // 背景冷灰
+  private readonly C_GREEN_TINT: string = '#f1f8e9'; // AI卡片渐变浅绿
+  private readonly C_CARD: string = '#f3f3f3'; // 小卡片背景
+  private readonly C_TEXT: string = '#1a1c1c'; // 主文本
+  private readonly C_TEXT_SUB: string = '#40493d'; // 次级文本
+  private readonly C_OUTLINE: string = '#bfcaba'; // 分割线/时间
   // --- 状态变量 ---
   @State messageList: ChatMessage[] = []; // 对话消息列表
-  @State inputText: string = '';          // 输入框文本
-  @State loading: boolean = false;        // 是否正在请求
+  @State inputText: string = ''; // 输入框文本
+  @State loading: boolean = false; // 是否正在请求
   private scroller: Scroller = new Scroller();
 
   // 组件即将出现：放入欢迎语
@@ -319,9 +311,19 @@ export struct Qna {
         .fontSize(15)
         .fontColor('#FFFFFF')
         .lineHeight(22)
-        .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+        .padding({
+          left: 14,
+          right: 14,
+          top: 10,
+          bottom: 10
+        })
         .backgroundColor(this.C_PRIMARY_CONTAINER)
-        .borderRadius({ topLeft: 12, topRight: 12, bottomLeft: 12, bottomRight: 0 })
+        .borderRadius({
+          topLeft: 12,
+          topRight: 12,
+          bottomLeft: 12,
+          bottomRight: 0
+        })
         .constraintSize({ maxWidth: '80%' })
       Text(msg.time)
         .fontSize(11)
@@ -389,6 +391,7 @@ export struct Qna {
                 .fontWeight(FontWeight.Bold)
                 .fontColor(this.C_TEXT)
             }
+
             ForEach(msg.answer!.causes, (c: string) => {
               Row({ space: 8 }) {
                 Text('•')
@@ -422,6 +425,7 @@ export struct Qna {
                 .fontWeight(FontWeight.Bold)
                 .fontColor(this.C_TEXT)
             }
+
             ForEach(msg.answer!.suggestions, (s: string) => {
               Row({ space: 8 }) {
                 Text('✓')
@@ -446,7 +450,12 @@ export struct Qna {
       .width('100%')
       .padding(14)
       .backgroundColor(this.C_GREEN_TINT)
-      .borderRadius({ topLeft: 0, topRight: 12, bottomLeft: 12, bottomRight: 12 })
+      .borderRadius({
+        topLeft: 0,
+        topRight: 12,
+        bottomLeft: 12,
+        bottomRight: 12
+      })
 
       Text(msg.time)
         .fontSize(11)
@@ -479,7 +488,7 @@ export struct Qna {
   InputBar() {
     Column() {
       // 推荐追问 chip（横向滚动）
-      Scroll() {
+      /*Scroll() {
         Row({ space: 10 }) {
           ForEach(this.suggestChips, (chip: string) => {
             Text(chip)
@@ -500,7 +509,7 @@ export struct Qna {
       .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Off)
       .width('100%')
-      .padding({ top: 8, bottom: 8 })
+      .padding({ top: 8, bottom: 8 })*/
 
       // 输入框 + 发送按钮
       Row({ space: 10 }) {
@@ -519,10 +528,6 @@ export struct Qna {
               this.inputText = value;
             })
 
-          // 麦克风（占位装饰）
-          Text('🎤')
-            .fontSize(20)
-            .padding(6)
         }
         .layoutWeight(1)
         .height(48)
@@ -546,7 +551,12 @@ export struct Qna {
         .onClick(() => this.onSend())
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 4, bottom: 12 })
+      .padding({
+        left: 16,
+        right: 16,
+        top: 4,
+        bottom: 12
+      })
       .alignItems(VerticalAlign.Center)
     }
     .backgroundColor(this.C_BG)
@@ -556,7 +566,7 @@ export struct Qna {
   build() {
     Column() {
       // 顶部标题栏
-      this.Header()
+      // this.Header()
 
       // 消息列表（可滚动）
       List({ space: 16, scroller: this.scroller }) {
@@ -582,11 +592,13 @@ export struct Qna {
                   .borderRadius(6)
                   .backgroundColor(this.C_SECONDARY)
                   .alignContent(Alignment.Center)
+
                   Text('AI 农技专家')
                     .fontSize(12)
                     .fontWeight(FontWeight.Bold)
                     .fontColor(this.C_PRIMARY)
                 }
+
                 Row({ space: 8 }) {
                   LoadingProgress()
                     .width(20)
@@ -599,10 +611,16 @@ export struct Qna {
                 .width('100%')
                 .padding(16)
                 .backgroundColor(this.C_GREEN_TINT)
-                .borderRadius({ topLeft: 0, topRight: 12, bottomLeft: 12, bottomRight: 12 })
+                .borderRadius({
+                  topLeft: 0,
+                  topRight: 12,
+                  bottomLeft: 12,
+                  bottomRight: 12
+                })
               }
               .alignItems(HorizontalAlign.Start)
               .constraintSize({ maxWidth: '88%' })
+
               Blank()
             }
             .width('100%')
@@ -611,7 +629,12 @@ export struct Qna {
       }
       .layoutWeight(1)
       .width('100%')
-      .padding({ left: 12, right: 12, top: 14, bottom: 14 })
+      .padding({
+        left: 12,
+        right: 12,
+        top: 14,
+        bottom: 14
+      })
       .scrollBar(BarState.Auto)
 
       // 底部输入栏

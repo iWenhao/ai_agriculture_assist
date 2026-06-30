@@ -83,7 +83,7 @@ export struct Home {
     let humidity = '';
     let windScale = '';
 
-    // 字符串循环
+    // 数组循环
     for (const line of lines) {
       console.log('line',line)
       const trimmed = line.trim();
