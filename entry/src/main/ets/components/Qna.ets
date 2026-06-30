@@ -305,6 +305,22 @@ export struct Qna {
     return '';
   }
 
+  // 轻量 Markdown 转纯文本（保留可读格式）
+  private stripMarkdown(md: string): string {
+    let text = md;
+    // 加粗 → 保留文字，去掉 **
+    text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+    // 斜体 → 保留文字，去掉 *
+    text = text.replace(/\*(.*?)\*/g, '$1');
+    // 标题标记 → 去掉 # 保留文字
+    text = text.replace(/^#{1,3}\s*/gm, '');
+    // 列表标记 → 替换为 •
+    text = text.replace(/^[-*]\s+/gm, '• ');
+    // 多行空行合并
+    text = text.replace(/\n{3,}/g, '\n\n');
+    return text;
+  }
+
   // 追加文字到列表中最后一条 AI 消息（触发 UI 刷新 = 打字机效果）
   private appendAiText(delta: string): void {
     if (this.messageList.length === 0) {
@@ -395,7 +411,8 @@ export struct Qna {
         .aiBubbleStyle()
         .justifyContent(FlexAlign.Start)
       } else {
-        Text(msg.text)
+        // Markdown 转为纯文本显示（RichText 在 ArkTS 中不支持动态 HTML，用 Text 替代）
+        Text(this.stripMarkdown(msg.text))
           .fontSize(15)
           .fontColor('#1a1c1c')
           .lineHeight(22)

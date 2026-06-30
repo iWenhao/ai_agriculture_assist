@@ -3,7 +3,7 @@
 // Agines (Agnes AI) 大模型接口配置
 // 1. 获取 API Key：https://agnes-ai.com
 // 2. 将下方 AGINES_API_KEY 替换为你自己的 Key
-export const AGINES_API_URL: string = 'https://apihub.agnes-ai.com/v1/chat/completions'  // 请替换为 Agines 提供的实际接口地址
+export const AGINES_API_URL: string = 'https://apihub.agnes-ai.com/v1/chat/completions'  // Agines 接口地址
 export const AGINES_MODEL: string = 'agnes-2.0-flash'  // 或你实际使用的模型名
 export const AGINES_API_KEY: string = 'sk-qhdvVWfG4B7sT85kKPcIk1UDzUZvdZhU4e6kkA0pKAPN3t0o'
 
