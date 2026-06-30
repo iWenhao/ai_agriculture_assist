@@ -306,6 +306,13 @@ export struct Qna {
         placeholder: '咨询农技难题...',
         text: this.inputText
       })
+      // placeholder居中 使用 padding 撑开高度，上下各留 15vp，总高度即为 14(字号) + 15*2 = 44vp（可根据需要微调）
+        .padding({
+          top: 15,
+          bottom: 15,
+          left: 12,
+          right: 12
+        })
         .layoutWeight(1)
         .fontSize(14)
         .fontColor('#1a1c1c')
