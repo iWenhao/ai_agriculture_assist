@@ -1,11 +1,11 @@
 // 全局常量配置
 
-// Agines (Agnes AI) 大模型接口配置
-// 1. 获取 API Key：https://agnes-ai.com
-// 2. 将下方 AGINES_API_KEY 替换为你自己的 Key
-export const AGINES_API_URL: string = 'https://apihub.agnes-ai.com/v1/chat/completions'  // Agines 接口地址
-export const AGINES_MODEL: string = 'agnes-2.0-flash'  // 或你实际使用的模型名
-export const AGINES_API_KEY: string = 'sk-qhdvVWfG4B7sT85kKPcIk1UDzUZvdZhU4e6kkA0pKAPN3t0o'
+// 硅基流动 (SiliconFlow) 大模型接口配置
+// 1. 注册并获取 API Key：https://siliconflow.cn -> 登录 -> API 密钥
+// 2. 将下方 SILICONFLOW_API_KEY 替换为你自己的 Key
+export const AGINES_API_URL: string = 'https://api.siliconflow.cn/v1/chat/completions'
+export const AGINES_MODEL: string = 'deepseek-ai/DeepSeek-V2.5'  // 常用模型：deepseek-ai/DeepSeek-V2.5, Qwen/Qwen2.5-7B-Instruct
+export const AGINES_API_KEY: string = '在此填入你的硅基流动 API Key'
 
 // 系统提示词：约束 AI 扮演农技专家，直接返回纯文本回答
 // export const SYSTEM_PROMPT: string =
