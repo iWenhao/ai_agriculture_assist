@@ -1,84 +1,133 @@
-// AI农技问答
+// AI农技问答（聊天对话式，参照设计稿还原）
 
 // http 1: 先导入
 import { http } from '@kit.NetworkKit';
 import { GLM_API_URL, GLM_MODEL, GLM_API_KEY, SYSTEM_PROMPT } from '../common/Constants';
 
-// 快捷标签项
-interface QuickTag {
-  label: string,
-  question: string
+// 消息角色
+type MsgRole = 'user' | 'ai';
+
+// 单条消息：用户消息用 text；AI 消息用 answer
+interface ChatMessage {
+  role: MsgRole;
+  text: string;          // 用户消息文本（AI 消息为空）
+  answer: AIAnswer | null; // AI 回答（用户消息为空）
+  time: string;          // 显示时间
 }
 
-// AI 回答结构（对应需求文档的四项内容）
+// AI 回答结构（对应设计稿：初步诊断 / 主要诱因 / 专家建议）
 interface AIAnswer {
-  analysis: string;   // 分析结果
-  cause: string;      // 产生原因
-  suggestion: string; // 处理建议
-  notice: string;     // 注意事项
+  diagnosis: string;     // 初步诊断
+  detail: string;        // 诊断详细说明
+  causes: string[];      // 主要诱因列表
+  suggestions: string[]; // 专家建议列表
 }
 
 // GLM 请求消息
-interface ChatMessage {
+interface GlmMessage {
   role: string;
   content: string;
 }
 
 // GLM 请求体
-interface ChatRequestBody {
+interface GlmRequestBody {
   model: string;
-  messages: ChatMessage[];
+  messages: GlmMessage[];
 }
 
 @Component
 export struct Qna {
-  // 快捷问题标签，点击自动填入示例问题
-  private quickTags: QuickTag[] = [
-    { label: '种植管理', question: '玉米在拔节期应该如何进行田间管理？' },
-    { label: '水肥管理', question: '番茄结果期应该怎样科学施肥和浇水？' },
-    { label: '病虫害防治', question: '水稻叶片上出现黄色斑点可能是什么病害？该如何防治？' },
-    { label: '技术咨询', question: '大棚蔬菜种植有哪些关键的环境调控技术？' },
-    { label: '基础知识', question: '什么是作物的营养生长期和生殖生长期？' }
-  ]
+  // --- 设计稿配色（来自 DESIGN.md） ---
+  private readonly C_PRIMARY: string = '#0d631b';          // 主色：农业深绿
+  private readonly C_PRIMARY_CONTAINER: string = '#2e7d32';// 绿色气泡
+  private readonly C_SECONDARY: string = '#f89c00';        // 金色：高价值AI洞察
+  private readonly C_BG: string = '#f9f9f9';               // 背景冷灰
+  private readonly C_GREEN_TINT: string = '#f1f8e9';       // AI卡片渐变浅绿
+  private readonly C_CARD: string = '#f3f3f3';             // 小卡片背景
+  private readonly C_TEXT: string = '#1a1c1c';             // 主文本
+  private readonly C_TEXT_SUB: string = '#40493d';         // 次级文本
+  private readonly C_OUTLINE: string = '#bfcaba';          // 分割线/时间
+
+  // 底部推荐追问 chip（参照设计稿）
+  private suggestChips: string[] = [
+    '如何具体施药？',
+    '预防下季感染？',
+    '查看周边疫情'
+  ];
 
   // --- 状态变量 ---
-  @State question: string = '';        // 用户输入的问题
-  @State answer: AIAnswer | null = null; // AI 返回的回答
-  @State loading: boolean = false;     // 是否正在请求
-  @State errorMsg: string = '';        // 错误提示
+  @State messageList: ChatMessage[] = []; // 对话消息列表
+  @State inputText: string = '';          // 输入框文本
+  @State loading: boolean = false;        // 是否正在请求
+  private scroller: Scroller = new Scroller();
 
-  // 输入框控制器，提升为成员避免每次重建
-  private textAreaCtrl: TextAreaController = new TextAreaController();
+  // 组件即将出现：放入欢迎语
+  aboutToAppear(): void {
+    this.messageList = [
+      {
+        role: 'ai',
+        text: '',
+        answer: {
+          diagnosis: '您好，我是 AI 农技专家',
+          detail: '无论是作物种植、水肥管理、病虫害防治还是农业技术咨询，都可以向我提问，我会为您提供专业的诊断与建议。',
+          causes: ['支持病虫害症状识别与分析', '提供科学的田间管理建议'],
+          suggestions: ['可直接输入您遇到的农技问题', '或点击下方推荐问题快速提问']
+        },
+        time: this.nowTime()
+      }
+    ];
+  }
 
-  // 点击快捷标签：自动填入对应示例问题
-  private onTagClick(item: QuickTag): void {
-    this.question = item.question;
+  // 获取当前时间字符串 HH:MM
+  private nowTime(): string {
+    const d = new Date();
+    const h = d.getHours().toString().padStart(2, '0');
+    const m = d.getMinutes().toString().padStart(2, '0');
+    return `${h}:${m}`;
   }
 
   // 提交提问
-  private async onAsk(): Promise<void> {
-    const q = this.question.trim();
-    if (q.length === 0) {
-      this.errorMsg = '请输入您要咨询的农技问题';
+  private async onSend(): Promise<void> {
+    const q = this.inputText.trim();
+    if (q.length === 0 || this.loading) {
       return;
     }
 
-    // 切换为加载状态，清空旧结果
+    // 追加用户消息并清空输入框
+    this.messageList.push({
+      role: 'user',
+      text: q,
+      answer: null,
+      time: this.nowTime()
+    });
+    this.inputText = '';
     this.loading = true;
-    this.errorMsg = '';
-    this.answer = null;
+    this.scrollToBottom();
 
     // 构造 GLM 请求体（带显式类型，符合 ArkTS 严格模式）
-    const requestBody: ChatRequestBody = {
+    const messages: GlmMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+    // 把近几轮对话作为上下文带上（最多 6 条，避免超长）
+    const recent = this.messageList.slice(-6);
+    for (const msg of recent) {
+      if (msg.role === 'user') {
+        messages.push({ role: 'user', content: msg.text });
+      } else if (msg.answer !== null) {
+        messages.push({
+          role: 'assistant',
+          content: this.answerToText(msg.answer)
+        });
+      }
+    }
+
+    const requestBody: GlmRequestBody = {
       model: GLM_MODEL,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: q }
-      ]
+      messages: messages
     };
 
     // http 2: http.createHttp()创建连接
     const httpRequest = http.createHttp();
+    let aiAnswer: AIAnswer;
+    let errMsg = '';
     try {
       console.log('=====AI问答请求开始======');
       // http 3: 使用request 方法请求
@@ -93,25 +142,57 @@ export struct Qna {
       console.log('AI问答结果>>>>>>', JSON.stringify(response));
 
       if (response.responseCode === 200) {
-        // 解析智谱返回的外层结构，取出 message.content
         const content = this.extractContent(response.result as string);
         if (content.length > 0) {
-          // 解析 content 中的 JSON
-          this.answer = this.parseAnswer(content);
+          aiAnswer = this.parseAnswer(content);
         } else {
-          this.errorMsg = 'AI 返回内容为空，请重试';
+          errMsg = 'AI 返回内容为空，请重试';
+          aiAnswer = this.errorAnswer(errMsg);
         }
       } else {
-        this.errorMsg = `服务异常（${response.responseCode}），请稍后重试`;
+        errMsg = `服务异常（${response.responseCode}），请稍后重试`;
+        aiAnswer = this.errorAnswer(errMsg);
       }
     } catch (err) {
       console.error('AI问答请求失败', err);
-      this.errorMsg = '请求失败，请检查网络或 API Key 配置';
+      errMsg = '请求失败，请检查网络或 API Key 配置';
+      aiAnswer = this.errorAnswer(errMsg);
     } finally {
       // 一定要销毁，减少内存开销
       httpRequest.destroy();
       this.loading = false;
     }
+
+    // 追加 AI 消息
+    this.messageList.push({
+      role: 'ai',
+      text: '',
+      answer: aiAnswer,
+      time: this.nowTime()
+    });
+    this.scrollToBottom();
+  }
+
+  // 把 AIAnswer 转成纯文本，用于多轮上下文
+  private answerToText(a: AIAnswer): string {
+    let s = `初步诊断：${a.diagnosis}。${a.detail}`;
+    if (a.causes.length > 0) {
+      s += '主要诱因：' + a.causes.join('；') + '。';
+    }
+    if (a.suggestions.length > 0) {
+      s += '专家建议：' + a.suggestions.join('；') + '。';
+    }
+    return s;
+  }
+
+  // 错误兜底回答
+  private errorAnswer(msg: string): AIAnswer {
+    return {
+      diagnosis: '暂时无法回答',
+      detail: msg,
+      causes: [],
+      suggestions: []
+    };
   }
 
   // 从智谱返回的 JSON 字符串中提取 message.content
@@ -139,184 +220,405 @@ export struct Qna {
       // 去除可能存在的 ```json 或 ``` 代码块包裹
       const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
       const obj = JSON.parse(cleaned) as Record<string, Object>;
-      // 使用类型守卫逐字段安全提取
       return {
-        analysis: this.readStr(obj, 'analysis'),
-        cause: this.readStr(obj, 'cause'),
-        suggestion: this.readStr(obj, 'suggestion'),
-        notice: this.readStr(obj, 'notice')
+        diagnosis: this.readStr(obj, 'diagnosis') || this.readStr(obj, 'analysis'),
+        detail: this.readStr(obj, 'detail'),
+        causes: this.readStrArray(obj, 'causes'),
+        suggestions: this.readStrArray(obj, 'suggestions')
       };
     } catch (err) {
       console.error('回答JSON解析失败，使用原文兜底', err);
-      // 解析失败时把原文整体放进分析结果，保证不白屏
+      // 解析失败时把原文整体放进诊断说明，保证不白屏
       return {
-        analysis: content,
-        cause: '',
-        suggestion: '',
-        notice: ''
+        diagnosis: 'AI 回复',
+        detail: content,
+        causes: [],
+        suggestions: []
       };
     }
   }
 
-  // 安全读取对象中的字符串字段，非字符串一律返回空串
+  // 安全读取字符串字段
   private readStr(obj: Record<string, Object>, key: string): string {
     const val = obj[key];
     return typeof val === 'string' ? val : '';
   }
 
-  // 单张回答卡片：左侧色条 + 标题 + 内容
-  @Builder
-  AnswerCard(title: string, content: string, barColor: ResourceColor) {
-    // 空内容不展示该卡片
-    if (content.length > 0) {
-      Row({ space: 8 }) {
-        Column({ space: 6 }) {
-          Text(title)
-            .fontSize(14)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#333333')
-          Text(content)
-            .fontSize(13)
-            .fontColor('#555555')
-            .lineHeight(22)
-            .width('100%')
+  // 安全读取字符串数组字段
+  private readStrArray(obj: Record<string, Object>, key: string): string[] {
+    const val = obj[key];
+    if (Array.isArray(val)) {
+      // 显式断言为对象数组，避免遍历 Object 时元素被推断为 any
+      const items = val as Object[];
+      const arr: string[] = [];
+      for (const item of items) {
+        if (typeof item === 'string') {
+          arr.push(item);
         }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
+      }
+      return arr;
+    }
+    // 兼容个别模型把数组返回成字符串的情况
+    if (typeof val === 'string' && val.length > 0) {
+      return [val];
+    }
+    return [];
+  }
+
+  // 滚动到底部
+  private scrollToBottom(): void {
+    // 延迟一帧，等列表刷新后再滚
+    setTimeout(() => {
+      this.scroller.scrollEdge(Edge.Bottom);
+    }, 50);
+  }
+
+  // ===== 顶部 Header =====
+  @Builder
+  Header() {
+    Row({ space: 10 }) {
+      // 左侧：圆形头像 + 标题
+      Row({ space: 8 }) {
+        // 头像（圆形绿色背景 + 叶子图标）
+        Stack() {
+          Text('🌾')
+            .fontSize(18)
+        }
+        .width(32)
+        .height(32)
+        .borderRadius(16)
+        .backgroundColor(this.C_PRIMARY_CONTAINER)
+        .alignContent(Alignment.Center)
+
+        Text('AI农技问答')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.C_PRIMARY)
+      }
+
+      Blank() // 中间撑开
+
+      // 右侧：通知铃铛
+      Text('🔔')
+        .fontSize(22)
+        .padding(6)
+    }
+    .width('100%')
+    .height(56)
+    .padding({ left: 16, right: 12 })
+    .backgroundColor(this.C_BG)
+    .alignItems(VerticalAlign.Center)
+    .border({ width: { bottom: 1 }, color: '#EEEEEE' })
+  }
+
+  // ===== 用户消息气泡（绿色，靠右） =====
+  @Builder
+  UserBubble(msg: ChatMessage) {
+    Column({ space: 4 }) {
+      Text(msg.text)
+        .fontSize(15)
+        .fontColor('#FFFFFF')
+        .lineHeight(22)
+        .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+        .backgroundColor(this.C_PRIMARY_CONTAINER)
+        .borderRadius({ topLeft: 12, topRight: 12, bottomLeft: 12, bottomRight: 0 })
+        .constraintSize({ maxWidth: '80%' })
+      Text(msg.time)
+        .fontSize(11)
+        .fontColor(this.C_OUTLINE)
+    }
+    .alignItems(HorizontalAlign.End)
+  }
+
+  // ===== AI 消息卡片（渐变白，靠左，三段式） =====
+  @Builder
+  AiCard(msg: ChatMessage) {
+    Column({ space: 4 }) {
+      // “AI 农技专家” 标签
+      Row({ space: 6 }) {
+        Stack() {
+          Text('✦')
+            .fontSize(13)
+            .fontColor('#FFFFFF')
+        }
+        .width(20)
+        .height(20)
+        .borderRadius(6)
+        .backgroundColor(this.C_SECONDARY)
+        .alignContent(Alignment.Center)
+
+        Text('AI 农技专家')
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.C_PRIMARY)
+      }
+
+      // 卡片主体
+      Column({ space: 12 }) {
+        // 第一段：初步诊断（verified 图标 + 标题 + 说明）
+        Row({ space: 10 }) {
+          Text('✔')
+            .fontSize(16)
+            .fontColor(this.C_PRIMARY)
+          Column({ space: 4 }) {
+            Text(`初步诊断：${msg.answer!.diagnosis}`)
+              .fontSize(15)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.C_PRIMARY)
+            if (msg.answer!.detail.length > 0) {
+              Text(msg.answer!.detail)
+                .fontSize(13)
+                .fontColor(this.C_TEXT_SUB)
+                .lineHeight(20)
+            }
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+        }
+        .alignItems(VerticalAlign.Top)
+
+        // 第二段：主要诱因（左橙色边框小卡）
+        if (msg.answer!.causes.length > 0) {
+          Column({ space: 6 }) {
+            Row({ space: 6 }) {
+              Text('⚠')
+                .fontSize(13)
+                .fontColor(this.C_SECONDARY)
+              Text('主要诱因')
+                .fontSize(13)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.C_TEXT)
+            }
+            ForEach(msg.answer!.causes, (c: string) => {
+              Row({ space: 8 }) {
+                Text('•')
+                  .fontSize(13)
+                  .fontColor(this.C_SECONDARY)
+                Text(c)
+                  .fontSize(13)
+                  .fontColor(this.C_TEXT_SUB)
+                  .lineHeight(20)
+                  .layoutWeight(1)
+              }
+              .alignItems(VerticalAlign.Top)
+            })
+          }
+          .width('100%')
+          .padding(10)
+          .backgroundColor(this.C_CARD)
+          .borderRadius(8)
+          .border({ width: { left: 4 }, color: this.C_SECONDARY })
+        }
+
+        // 第三段：专家建议（左绿色边框小卡）
+        if (msg.answer!.suggestions.length > 0) {
+          Column({ space: 6 }) {
+            Row({ space: 6 }) {
+              Text('★')
+                .fontSize(13)
+                .fontColor(this.C_PRIMARY)
+              Text('专家建议')
+                .fontSize(13)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.C_TEXT)
+            }
+            ForEach(msg.answer!.suggestions, (s: string) => {
+              Row({ space: 8 }) {
+                Text('✓')
+                  .fontSize(13)
+                  .fontColor(this.C_PRIMARY)
+                Text(s)
+                  .fontSize(13)
+                  .fontColor(this.C_TEXT_SUB)
+                  .lineHeight(20)
+                  .layoutWeight(1)
+              }
+              .alignItems(VerticalAlign.Top)
+            })
+          }
+          .width('100%')
+          .padding(10)
+          .backgroundColor(this.C_CARD)
+          .borderRadius(8)
+          .border({ width: { left: 4 }, color: this.C_PRIMARY })
+        }
       }
       .width('100%')
-      .padding({
-        left: 14,
-        right: 14,
-        top: 12,
-        bottom: 12
-      })
-      .backgroundColor('#FFFFFF')
-      .borderRadius(10)
-      // 左侧色条样式，参照首页农事建议卡片
-      .border({
-        width: { left: 4 },
-        color: barColor
-      })
+      .padding(14)
+      .backgroundColor(this.C_GREEN_TINT)
+      .borderRadius({ topLeft: 0, topRight: 12, bottomLeft: 12, bottomRight: 12 })
+
+      Text(msg.time)
+        .fontSize(11)
+        .fontColor(this.C_OUTLINE)
+    }
+    .alignItems(HorizontalAlign.Start)
+    .constraintSize({ maxWidth: '88%' })
+  }
+
+  // ===== 单条消息：根据角色选择气泡 =====
+  @Builder
+  MessageItem(msg: ChatMessage) {
+    if (msg.role === 'user') {
+      Row() {
+        Blank()
+        this.UserBubble(msg)
+      }
+      .width('100%')
+    } else {
+      Row() {
+        this.AiCard(msg)
+        Blank()
+      }
+      .width('100%')
     }
   }
 
-  build() {
-    Scroll() {
-      Column({ space: 16 }) {
-        // 标题区
-        Column({ space: 6 }) {
-          Text('AI 农技问答')
-            .fontSize(20)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#0D631B')
-          Text('输入生产问题，获取智能分析与建议')
-            .fontSize(12)
-            .fontColor('#999999')
-        }
-        .width('100%')
-        .alignItems(HorizontalAlign.Start)
-
-        // 快捷问题标签区
-        Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(this.quickTags, (item: QuickTag) => {
-            Text(item.label)
-              .fontSize(13)
-              .fontColor('#0D631B')
-              .backgroundColor('#E8F5E9')
+  // ===== 底部输入栏 =====
+  @Builder
+  InputBar() {
+    Column() {
+      // 推荐追问 chip（横向滚动）
+      Scroll() {
+        Row({ space: 10 }) {
+          ForEach(this.suggestChips, (chip: string) => {
+            Text(chip)
+              .fontSize(12)
+              .fontColor(this.C_TEXT_SUB)
+              .backgroundColor('#e8e8e8')
+              .border({ width: 1, color: this.C_OUTLINE })
               .borderRadius(16)
               .padding({ left: 14, right: 14, top: 6, bottom: 6 })
-              .margin({ right: 8, bottom: 8 })
-              .onClick(() => this.onTagClick(item))
+              .onClick(() => {
+                this.inputText = chip;
+                this.onSend();
+              })
           })
         }
-        .width('100%')
+        .padding({ left: 16, right: 16 })
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .padding({ top: 8, bottom: 8 })
 
-        // 输入区
-        Column({ space: 10 }) {
+      // 输入框 + 发送按钮
+      Row({ space: 10 }) {
+        Row({ space: 8 }) {
           TextArea({
-            placeholder: '请描述您遇到的农技问题，如病虫害、水肥、种植管理等…',
-            controller: this.textAreaCtrl
+            placeholder: '咨询农技难题...',
+            text: this.inputText
           })
-            .height(120)
+            .layoutWeight(1)
             .fontSize(14)
-            .borderRadius(10)
-            .backgroundColor('#FFFFFF')
-            .placeholderColor('#BBBBBB')
+            .fontColor(this.C_TEXT)
+            .placeholderColor('#AAAAAA')
+            .backgroundColor(this.C_CARD)
+            .borderRadius(12)
             .onChange((value: string) => {
-              this.question = value;
+              this.inputText = value;
             })
 
-          Button('提 问')
-            .width('100%')
-            .height(46)
-            .fontSize(16)
-            .fontColor('#FFFFFF')
-            .backgroundColor('#0D631B')
-            .borderRadius(10)
-            // 加载中或无输入时禁用，避免重复请求
-            .enabled(!this.loading && this.question.trim().length > 0)
-            .opacity((!this.loading && this.question.trim().length > 0) ? 1 : 0.6)
-            .onClick(() => this.onAsk())
+          // 麦克风（占位装饰）
+          Text('🎤')
+            .fontSize(20)
+            .padding(6)
         }
-        .width('100%')
+        .layoutWeight(1)
+        .height(48)
+        .padding({ left: 12, right: 8 })
+        .backgroundColor(this.C_CARD)
+        .borderRadius(12)
+        .alignItems(VerticalAlign.Center)
 
-        // 回答区：根据状态切换渲染
-        if (this.loading) {
-          // 加载中
-          Row({ space: 10 }) {
-            LoadingProgress()
-              .width(28)
-              .height(28)
-              .color('#0D631B')
-            Text('AI 正在分析中…')
-              .fontSize(14)
-              .fontColor('#666666')
-          }
-          .width('100%')
-          .justifyContent(FlexAlign.Center)
-          .padding(40)
-        } else if (this.errorMsg.length > 0) {
-          // 错误提示
-          Text(this.errorMsg)
-            .width('100%')
-            .fontSize(14)
-            .fontColor('#D32F2F')
-            .backgroundColor('#FFEBEE')
-            .borderRadius(10)
-            .padding(16)
-            .textAlign(TextAlign.Center)
-        } else if (this.answer !== null) {
-          // 回答卡片：分析结果 / 产生原因 / 处理建议 / 注意事项
-          Column({ space: 12 }) {
-            this.AnswerCard('分析结果', this.answer.analysis, '#0D631B')
-            this.AnswerCard('产生原因', this.answer.cause, '#FF9E00')
-            this.AnswerCard('处理建议', this.answer.suggestion, '#1976D2')
-            this.AnswerCard('注意事项', this.answer.notice, '#D32F2F')
-          }
-          .width('100%')
-        } else {
-          // 初始空态提示
-          Text('点击上方标签或输入问题，开始向 AI 提问')
-            .width('100%')
-            .fontSize(13)
-            .fontColor('#999999')
-            .textAlign(TextAlign.Center)
-            .padding(30)
+        // 发送按钮（绿色）
+        Stack() {
+          Text('➤')
+            .fontSize(20)
+            .fontColor('#FFFFFF')
         }
+        .width(48)
+        .height(48)
+        .backgroundColor(this.C_PRIMARY_CONTAINER)
+        .borderRadius(12)
+        .alignContent(Alignment.Center)
+        .opacity((this.inputText.trim().length > 0 && !this.loading) ? 1 : 0.5)
+        .onClick(() => this.onSend())
       }
       .width('100%')
-      .backgroundColor('#F5F5F5')
-      .padding({
-        top: 12,
-        bottom: 12,
-        left: 12,
-        right: 12
-      })
+      .padding({ left: 16, right: 16, top: 4, bottom: 12 })
+      .alignItems(VerticalAlign.Center)
+    }
+    .backgroundColor(this.C_BG)
+    .border({ width: { top: 1 }, color: '#EEEEEE' })
+  }
+
+  build() {
+    Column() {
+      // 顶部标题栏
+      this.Header()
+
+      // 消息列表（可滚动）
+      List({ space: 16, scroller: this.scroller }) {
+        ForEach(this.messageList, (msg: ChatMessage) => {
+          ListItem() {
+            this.MessageItem(msg)
+          }
+        })
+
+        // 加载中：追加一条 AI 占位消息
+        if (this.loading) {
+          ListItem() {
+            Row() {
+              Column({ space: 4 }) {
+                Row({ space: 6 }) {
+                  Stack() {
+                    Text('✦')
+                      .fontSize(13)
+                      .fontColor('#FFFFFF')
+                  }
+                  .width(20)
+                  .height(20)
+                  .borderRadius(6)
+                  .backgroundColor(this.C_SECONDARY)
+                  .alignContent(Alignment.Center)
+                  Text('AI 农技专家')
+                    .fontSize(12)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(this.C_PRIMARY)
+                }
+                Row({ space: 8 }) {
+                  LoadingProgress()
+                    .width(20)
+                    .height(20)
+                    .color(this.C_PRIMARY)
+                  Text('AI 正在分析中…')
+                    .fontSize(13)
+                    .fontColor(this.C_TEXT_SUB)
+                }
+                .width('100%')
+                .padding(16)
+                .backgroundColor(this.C_GREEN_TINT)
+                .borderRadius({ topLeft: 0, topRight: 12, bottomLeft: 12, bottomRight: 12 })
+              }
+              .alignItems(HorizontalAlign.Start)
+              .constraintSize({ maxWidth: '88%' })
+              Blank()
+            }
+            .width('100%')
+          }
+        }
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .padding({ left: 12, right: 12, top: 14, bottom: 14 })
+      .scrollBar(BarState.Auto)
+
+      // 底部输入栏
+      this.InputBar()
     }
     .width('100%')
     .height('100%')
-    .scrollable(ScrollDirection.Vertical)
-    .scrollBar(BarState.Auto)
+    .backgroundColor(this.C_BG)
   }
 }
