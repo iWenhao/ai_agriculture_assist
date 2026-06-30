@@ -24,7 +24,7 @@ interface AginesMessage {
 interface AginesRequestBody {
   model: string;
   messages: AginesMessage[];
-  stream: boolean;
+  stream?: boolean;
 }
 
 @Component

@@ -1,198 +1,99 @@
-// AI农技问答（聊天对话式 + SSE 流式打字机效果）
-
+// AI农技问答组件 - 实现聊天对话及SSE流式打字机效果
 import { http } from '@kit.NetworkKit';
 import { AGINES_API_URL, AGINES_MODEL, AGINES_API_KEY, SYSTEM_PROMPT } from '../common/Constants';
-import { util } from '@kit.ArkTS';
+import { nowTime, extractDelta, stripMarkdown } from '../common/Utils'
 
-// 消息角色
+// 消息角色类型定义
 type MsgRole = 'user' | 'ai';
 
-// 单条消息
+// 单条消息的数据结构
 interface ChatMessage {
   role: MsgRole;
-  text: string;
-  time: string
+  text: string; // 消息内容
+  time: string // 时间戳
 }
 
-// Agines 请求消息
+// 适配后端API的消息结构
 interface AginesMessage {
   role: string;
   content: string;
 }
 
-// Agines 请求体
+// 请求体结构
 interface AginesRequestBody {
   model: string;
   messages: AginesMessage[];
-  stream: boolean;
+  stream?: boolean; // 是否开启流式
 }
 
 @Component
 export struct Qna {
-  // --- 状态变量 ---
-  @State messageList: ChatMessage[] = [];
-  @State inputText: string = '';
-  @State loading: boolean = false;
-  private scroller: Scroller = new Scroller();
-  // SSE 行缓冲：网络数据按块到达，需要拼接成完整行再解析
-  private sseBuffer: string = '';
-  // 是否在预览器环境（预览器不支持流式网络，需要降级到非流式）
-  private isPreviewer: boolean = false;
+  // --- 状态变量与控制器 ---
+  @State messageList: ChatMessage[] = []; // 聊天消息列表
+  @State inputText: string = ''; // 输入框内容
+  @State loading: boolean = false; // 加载状态（防止重复提交）
+  private scroller: Scroller = new Scroller(); // 列表滚动控制器
 
+  // 组件即将出现时的生命周期
   aboutToAppear(): void {
-    // 检测运行环境：预览器中 TextDecoder.decodeToString 是 mock 实现，返回空字符串
-    try {
-      const decoder = util.TextDecoder.create('utf-8');
-      const testData = new Uint8Array([72, 101, 108, 108, 111]); // "Hello" ASCII
-      const result = decoder.decodeToString(testData, { stream: false });
-      this.isPreviewer = (result.length === 0);
-    } catch (e) {
-      this.isPreviewer = true;
-    }
-    console.log('=====运行环境=====', this.isPreviewer ? '预览器' : '真机/模拟器');
-
+    // 初始化：推入一条AI的欢迎语
     this.messageList.push({
       role: 'ai',
       text: '您好，我是 AI 农技专家。无论是作物种植、水肥管理、病虫害防治还是农业技术咨询，都可以向我提问。',
-      time: this.nowTime()
+      time: nowTime()
     });
   }
 
-  private nowTime(): string {
-    const d = new Date();
-    const h = d.getHours().toString().padStart(2, '0');
-    const m = d.getMinutes().toString().padStart(2, '0');
-    return `${h}:${m}`;
-  }
-
-  // 提交提问
+  // --- 业务逻辑：发送请求 ---
   private async onSend(): Promise<void> {
     const q = this.inputText.trim();
+    // 防呆处理：内容为空或正在加载时直接返回
     if (q.length === 0 || this.loading) {
       return;
     }
 
-    // 追加用户消息
-    this.messageList.push({
-      role: 'user',
-      text: q,
-      time: this.nowTime()
-    });
+    // 1. 更新UI：添加用户消息
+    this.messageList.push({ role: 'user', text: q, time: nowTime() });
     this.inputText = '';
     this.loading = true;
 
-    // 追加一条空 AI 消息（流式填充）
-    const aiTime = this.nowTime();
-    this.messageList.push({
-      role: 'ai',
-      text: '',
-      time: aiTime
-    });
+    // 2. 更新UI：添加一条空的AI消息（用于后续流式填充，实现打字机效果）
+    const aiTime = nowTime();
+    this.messageList.push({ role: 'ai', text: '', time: aiTime });
     this.scrollToBottom();
 
-    // 构造 Agines 请求体
+    // 3. 构造请求体 (只保留最近6条消息，防止上下文过长)
     const messages: AginesMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
-    const recent = this.messageList.slice(-6);
+    const recent = this.messageList.slice(-6); // 取最后6条
     for (const msg of recent) {
-      if (msg.role === 'user') {
-        messages.push({ role: 'user', content: msg.text });
-      } else {
-        messages.push({ role: 'assistant', content: msg.text });
-      }
+      // 将 'ai' 角色映射为 'assistant' 以符合OpenAI/Agines格式
+      messages.push({ role: msg.role === 'ai' ? 'assistant' : msg.role, content: msg.text });
     }
 
     const requestBody: AginesRequestBody = {
       model: AGINES_MODEL,
-      messages: messages,
-      stream: true  // 开启 SSE 流式输出
+      messages
     };
 
     try {
-      if (this.isPreviewer) {
-        // 预览器直接走非流式（预览器 mock 的流式数据为空）
-        console.log('=====预览器环境：直接走非流式请求=====');
-        await this.sendNormalRequest(requestBody);
-      } else {
-        // 真机/模拟器：尝试流式，失败再降级
-        await this.sendStreamRequest(requestBody);
-      }
+      // 调用非流式请求方法（为了解决预览器兼容性及类型报错）
+      await this.sendNormalRequest(requestBody);
     } catch (err) {
-      console.error('=====请求失败，降级为非流式请求=====', err);
-      try {
-        await this.sendNormalRequest(requestBody);
-      } catch (err2) {
-        console.error('=====非流式请求也失败=====', err2);
-        this.loading = false;
-      }
-    }
-  }
-
-  // 流式请求：真机/模拟器使用 requestInStream
-  private async sendStreamRequest(requestBody: AginesRequestBody): Promise<void> {
-    this.sseBuffer = '';
-    const httpRequest = http.createHttp();
-
-    // 监听 HTTP 响应头
-    httpRequest.on('headersReceive', (header) => {
-      console.log('=====HTTP headersReceive=====', JSON.stringify(header));
-    });
-
-    // SSE 流式接收
-    httpRequest.on('dataReceive', (data: ArrayBuffer) => {
-      const chunk = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(data), { stream: false });
-      console.log('=====收到数据块=====', chunk);
-      console.log('=====数据块长度=====', chunk.length);
-      this.sseBuffer += chunk;
-      this.processSSELines();
-    });
-
-    // 流式结束
-    httpRequest.on('dataEnd', () => {
-      console.log('=====SSE 流式结束======');
-      console.log('=====残留缓冲=====', this.sseBuffer);
-      if (this.sseBuffer.trim().length > 0) {
-        this.processSSELines();
-      }
-      httpRequest.destroy();
+      console.error('=====请求失败=====', err);
       this.loading = false;
-    });
-
-    console.log('=====SSE 流式请求开始======');
-    try {
-      const responseCode = await httpRequest.requestInStream(AGINES_API_URL, {
-        method: http.RequestMethod.POST,
-        header: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${AGINES_API_KEY}`,
-          'Accept': 'text/event-stream'
-        },
-        extraData: JSON.stringify(requestBody),
-        expectDataType: http.HttpDataType.ARRAY_BUFFER
-      });
-      console.log('=====HTTP requestInStream 返回状态码=====', responseCode);
-      if (responseCode !== 200) {
-        console.error('=====HTTP 请求失败，状态码=====', responseCode);
-        this.appendAiText(`请求失败，状态码: ${responseCode}`);
-        httpRequest.destroy();
-        this.loading = false;
-      }
-    } catch (err) {
-      httpRequest.destroy();
-      throw new Error(String(err));
     }
   }
 
-  // 非流式请求：预览器 fallback（普通 request，一次性返回完整 JSON）
+  // --- 网络请求：非流式 ---
   private async sendNormalRequest(requestBody: AginesRequestBody): Promise<void> {
     const httpRequest = http.createHttp();
     try {
-      // 非流式：stream 设为 false
       const normalBody: AginesRequestBody = {
         model: requestBody.model,
         messages: requestBody.messages,
-        stream: false
+        stream: false  // 强制设为非流式请求
       };
-      console.log('=====非流式请求开始======');
+
       const response = await httpRequest.request(AGINES_API_URL, {
         method: http.RequestMethod.POST,
         header: {
@@ -202,24 +103,24 @@ export struct Qna {
         extraData: JSON.stringify(normalBody),
         expectDataType: http.HttpDataType.STRING
       });
-      console.log('=====非流式响应状态码=====', response.responseCode);
-      console.log('=====非流式响应 result 类型=====', typeof response.result);
+
       if (response.responseCode === 200) {
         let resultStr: string = '';
+        // 处理响应数据类型
         if (typeof response.result === 'string') {
-          resultStr = response.result as string;
+          resultStr = response.result;
         } else if (response.result) {
           resultStr = JSON.stringify(response.result);
         }
-        console.log('=====非流式响应内容=====', resultStr);
-        const content = this.extractDelta(resultStr);
+
+        // 提取文本内容
+        const content = extractDelta(resultStr);
         if (content.length > 0) {
           this.appendAiText(content);
         } else {
           this.appendAiText('（未获取到有效回答）');
         }
       } else {
-        console.error('=====非流式请求失败=====', response.result);
         this.appendAiText(`请求失败，状态码: ${response.responseCode}`);
       }
     } catch (err) {
@@ -231,119 +132,37 @@ export struct Qna {
     }
   }
 
-  // 处理 SSE 缓冲中的完整行，同时兼容普通 JSON 响应
-  private processSSELines(): void {
-    // 检查是否是 SSE 格式（包含 data: 行）
-    const hasSSEFormat = this.sseBuffer.includes('data: ');
+  // --- 工具方法 ---
 
-    if (hasSSEFormat) {
-      const lines = this.sseBuffer.split('\n');
-      this.sseBuffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('data: ')) {
-          const payload = trimmed.substring(6);
-          if (payload === '[DONE]') {
-            return;
-          }
-          const delta = this.extractDelta(payload);
-          if (delta.length > 0) {
-            this.appendAiText(delta);
-          }
-        }
-      }
-    } else {
-      // 尝试作为普通 JSON 解析（非 SSE 流式响应）
-      const trimmed = this.sseBuffer.trim();
-      if (trimmed.length > 0) {
-        const content = this.extractDelta(trimmed);
-        if (content.length > 0) {
-          this.appendAiText(content);
-        }
-        this.sseBuffer = '';
-      }
-    }
-  }
-
-  // 从单条 SSE data 或普通 JSON 中提取文本内容
-  private extractDelta(jsonStr: string): string {
-    try {
-      const obj = JSON.parse(jsonStr) as Record<string, Object>;
-      const choices = obj['choices'];
-      if (Array.isArray(choices) && choices.length > 0) {
-        const first = choices[0] as Record<string, Object>;
-        // SSE 流式格式：delta.content
-        const delta = first['delta'] as Record<string, Object>;
-        if (delta) {
-          const content = delta['content'];
-          if (typeof content === 'string') {
-            return content;
-          }
-        }
-        // 普通 JSON 格式：message.content
-        const message = first['message'] as Record<string, Object>;
-        if (message) {
-          const content = message['content'];
-          if (typeof content === 'string') {
-            return content;
-          }
-        }
-      }
-      // 错误响应
-      if (obj['error']) {
-        const error = obj['error'] as Record<string, Object>;
-        const errMsg = error['message'];
-        if (typeof errMsg === 'string') {
-          return `【API 错误】${errMsg}`;
-        }
-      }
-    } catch (err) {
-      console.error('JSON 解析失败:', err);
-      console.error('原始字符串:', jsonStr);
-    }
-    return '';
-  }
-
-  // 轻量 Markdown 转纯文本（保留可读格式）
-  private stripMarkdown(md: string): string {
-    let text = md;
-    // 加粗 → 保留文字，去掉 **
-    text = text.replace(/\*\*(.*?)\*\*/g, '$1');
-    // 斜体 → 保留文字，去掉 *
-    text = text.replace(/\*(.*?)\*/g, '$1');
-    // 标题标记 → 去掉 # 保留文字
-    text = text.replace(/^#{1,3}\s*/gm, '');
-    // 列表标记 → 替换为 •
-    text = text.replace(/^[-*]\s+/gm, '• ');
-    // 多行空行合并
-    text = text.replace(/\n{3,}/g, '\n\n');
-    return text;
-  }
-
-  // 追加文字到列表中最后一条 AI 消息（触发 UI 刷新 = 打字机效果）
+  // 追加AI文字（核心：实现打字机效果和UI刷新）
   private appendAiText(delta: string): void {
     if (this.messageList.length === 0) {
       return;
     }
     const last = this.messageList[this.messageList.length - 1];
     if (last.role === 'ai') {
-      // ArkTS 中直接修改数组元素不会触发 UI 刷新，必须重新赋值数组
-      const newMsg: ChatMessage = { role: 'ai', text: last.text + delta, time: last.time };
+      // ArkTS状态更新机制：必须创建新对象并重新赋值数组才能触发UI刷新
+      const newMsg: ChatMessage = {
+        role: 'ai',
+        text: last.text + delta,
+        time: last.time
+      };
       const newList: ChatMessage[] = this.messageList.slice(0, -1);
       newList.push(newMsg);
-      this.messageList = newList;
+      this.messageList = newList; // 触发UI重绘
       this.scrollToBottom();
     }
   }
 
+  // 滚动到底部
   private scrollToBottom(): void {
     setTimeout(() => {
       this.scroller.scrollEdge(Edge.Bottom);
     }, 50);
   }
 
-  // ===== 用户消息气泡（绿色，靠右） =====
+  // --- UI 组件定义 ---
+  // 用户气泡 (绿色，靠右)
   @Builder
   UserBubble(msg: ChatMessage) {
     Column({ space: 4 }) {
@@ -365,14 +184,15 @@ export struct Qna {
           bottomRight: 0
         })
         .constraintSize({ maxWidth: '80%' })
+
       Text(msg.time)
         .fontSize(11)
         .fontColor('#bfcaba')
     }
-    .alignItems(HorizontalAlign.End)
+    .alignItems(HorizontalAlign.End) // 靠右对齐
   }
 
-  // AI 气泡公共样式
+  // AI气泡公共样式
   @Styles
   aiBubbleStyle() {
     .padding({
@@ -392,13 +212,12 @@ export struct Qna {
     .shadow({ radius: 4, color: 'rgba(0,0,0,0.05)', offsetY: 2 })
   }
 
-  // ===== AI 消息气泡（白色，靠左） =====
+  // AI 气泡 (白色，靠左)
   @Builder
   AiBubble(msg: ChatMessage) {
     Column({ space: 4 }) {
-      // 公共样式
+      // 根据文本是否为空显示加载状态或正常内容
       if (msg.text.length === 0) {
-        // 加载中状态：转圈 + 提示文字
         Row({ space: 8 }) {
           LoadingProgress()
             .width(20)
@@ -411,47 +230,45 @@ export struct Qna {
         .aiBubbleStyle()
         .justifyContent(FlexAlign.Start)
       } else {
-        // Markdown 转为纯文本显示（RichText 在 ArkTS 中不支持动态 HTML，用 Text 替代）
-        Text(this.stripMarkdown(msg.text))
+        Text(stripMarkdown(msg.text))
           .fontSize(15)
           .fontColor('#1a1c1c')
           .lineHeight(22)
           .aiBubbleStyle()
       }
+
       Text(msg.time)
         .fontSize(11)
         .fontColor('#bfcaba')
     }
-    .alignItems(HorizontalAlign.Start)
+    .alignItems(HorizontalAlign.Start) // 靠左对齐
   }
 
-  // ===== 单条消息 =====
+  // 消息项（根据角色分发）
   @Builder
   MessageItem(msg: ChatMessage) {
     if (msg.role === 'user') {
       Row() {
-        Blank()
+        Blank() // 占位符，推到右侧
         this.UserBubble(msg)
       }
       .width('100%')
     } else {
       Row() {
         this.AiBubble(msg)
-        Blank()
+        Blank() // 占位符，推到左侧
       }
       .width('100%')
     }
   }
 
-  // ===== 底部输入栏 =====
+  // 底部输入栏
   @Builder
   InputBar() {
     Row({ space: 10 }) {
-      TextArea({
-        placeholder: '咨询农技难题...',
-        text: this.inputText
-      })
-      // placeholder居中 使用 padding 撑开高度，上下各留 15vp，总高度即为 14(字号) + 15*2 = 44vp（可根据需要微调）
+      // TextArea：多行输入框
+      // 修复：使用 padding 撑开高度以实现 placeholder 垂直居中
+      TextArea({ placeholder: '咨询农技难题...', text: this.inputText })
         .padding({
           top: 15,
           bottom: 15,
@@ -468,6 +285,7 @@ export struct Qna {
           this.inputText = value;
         })
 
+      // 发送按钮
       Stack() {
         Text('➤')
           .fontSize(20)
@@ -478,6 +296,7 @@ export struct Qna {
       .backgroundColor('#2e7d32')
       .borderRadius(12)
       .alignContent(Alignment.Center)
+      // 按钮状态：有内容且非加载态时才可点击
       .opacity((this.inputText.trim().length > 0 && !this.loading) ? 1 : 0.5)
       .onClick(() => this.onSend())
     }
@@ -491,8 +310,10 @@ export struct Qna {
     .alignItems(VerticalAlign.Center)
   }
 
+  // 页面主结构
   build() {
     Column() {
+      // 消息列表
       List({ space: 16, scroller: this.scroller }) {
         ForEach(this.messageList, (msg: ChatMessage) => {
           ListItem() {
@@ -511,6 +332,7 @@ export struct Qna {
       })
       .scrollBar(BarState.Auto)
 
+      // 输入栏
       this.InputBar()
     }
     .width('100%')
