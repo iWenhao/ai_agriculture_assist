@@ -36,8 +36,21 @@ export struct Qna {
   private scroller: Scroller = new Scroller();
   // SSE 行缓冲：网络数据按块到达，需要拼接成完整行再解析
   private sseBuffer: string = '';
+  // 是否在预览器环境（预览器不支持流式网络，需要降级到非流式）
+  private isPreviewer: boolean = false;
 
   aboutToAppear(): void {
+    // 检测运行环境：预览器中 TextDecoder.decodeToString 是 mock 实现，返回空字符串
+    try {
+      const decoder = util.TextDecoder.create('utf-8');
+      const testData = new Uint8Array([72, 101, 108, 108, 111]); // "Hello" ASCII
+      const result = decoder.decodeToString(testData, { stream: false });
+      this.isPreviewer = (result.length === 0);
+    } catch (e) {
+      this.isPreviewer = true;
+    }
+    console.log('=====运行环境=====', this.isPreviewer ? '预览器' : '真机/模拟器');
+
     this.messageList.push({
       role: 'ai',
       text: '您好，我是 AI 农技专家。无论是作物种植、水肥管理、病虫害防治还是农业技术咨询，都可以向我提问。',
@@ -95,12 +108,16 @@ export struct Qna {
     };
 
     try {
-      // 先尝试流式（真机/模拟器有效）
-      await this.sendStreamRequest(requestBody);
+      if (this.isPreviewer) {
+        // 预览器直接走非流式（预览器 mock 的流式数据为空）
+        console.log('=====预览器环境：直接走非流式请求=====');
+        await this.sendNormalRequest(requestBody);
+      } else {
+        // 真机/模拟器：尝试流式，失败再降级
+        await this.sendStreamRequest(requestBody);
+      }
     } catch (err) {
-      console.error('=====流式请求失败，降级为非流式请求=====', err);
-      console.error('=====流式请求失败类型=====', typeof err);
-      // 预览器不支持流式，降级为普通请求（非流式）
+      console.error('=====请求失败，降级为非流式请求=====', err);
       try {
         await this.sendNormalRequest(requestBody);
       } catch (err2) {
@@ -133,13 +150,6 @@ export struct Qna {
     httpRequest.on('dataEnd', () => {
       console.log('=====SSE 流式结束======');
       console.log('=====残留缓冲=====', this.sseBuffer);
-      // 检测：收到 dataEnd 但 buffer 为空 → 预览器 mock 数据为空，降级到非流式
-      if (this.sseBuffer.trim().length === 0) {
-        console.log('=====预览器环境：降级为非流式请求=====');
-        httpRequest.destroy();
-        this.sendNormalRequest(requestBody);
-        return;
-      }
       if (this.sseBuffer.trim().length > 0) {
         this.processSSELines();
       }
@@ -148,22 +158,27 @@ export struct Qna {
     });
 
     console.log('=====SSE 流式请求开始======');
-    const responseCode = await httpRequest.requestInStream(AGINES_API_URL, {
-      method: http.RequestMethod.POST,
-      header: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${AGINES_API_KEY}`,
-        'Accept': 'text/event-stream'
-      },
-      extraData: JSON.stringify(requestBody),
-      expectDataType: http.HttpDataType.ARRAY_BUFFER
-    });
-    console.log('=====HTTP requestInStream 返回状态码=====', responseCode);
-    if (responseCode !== 200) {
-      console.error('=====HTTP 请求失败，状态码=====', responseCode);
-      this.appendAiText(`请求失败，状态码: ${responseCode}`);
+    try {
+      const responseCode = await httpRequest.requestInStream(AGINES_API_URL, {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${AGINES_API_KEY}`,
+          'Accept': 'text/event-stream'
+        },
+        extraData: JSON.stringify(requestBody),
+        expectDataType: http.HttpDataType.ARRAY_BUFFER
+      });
+      console.log('=====HTTP requestInStream 返回状态码=====', responseCode);
+      if (responseCode !== 200) {
+        console.error('=====HTTP 请求失败，状态码=====', responseCode);
+        this.appendAiText(`请求失败，状态码: ${responseCode}`);
+        httpRequest.destroy();
+        this.loading = false;
+      }
+    } catch (err) {
       httpRequest.destroy();
-      this.loading = false;
+      throw new Error(String(err));
     }
   }
 
