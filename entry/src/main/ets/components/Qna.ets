@@ -367,10 +367,18 @@ export struct Qna {
     Column({ space: 4 }) {
       // 公共样式
       if (msg.text.length === 0) {
-        Text('AI 正在思考…')
-          .fontSize(14)
-          .fontColor('#40493d')
-          .aiBubbleStyle()
+        // 加载中状态：转圈 + 提示文字
+        Row({ space: 8 }) {
+          LoadingProgress()
+            .width(20)
+            .height(20)
+            .color('#2e7d32')
+          Text('AI 正在思考…')
+            .fontSize(14)
+            .fontColor('#40493d')
+        }
+        .aiBubbleStyle()
+        .justifyContent(FlexAlign.Start)
       } else {
         Text(msg.text)
           .fontSize(15)
