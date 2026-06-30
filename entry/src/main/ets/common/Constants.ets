@@ -7,12 +7,8 @@ export const GLM_API_URL: string = 'https://open.bigmodel.cn/api/paas/v4/chat/co
 export const GLM_MODEL: string = 'glm-4-flash' // 免费模型，适合课程项目
 export const GLM_API_KEY: string = '在此填入你的智谱 API Key'
 
-// 系统提示词：约束 AI 扮演农技专家，并按固定字段返回 JSON
+// 系统提示词：约束 AI 扮演农技专家，直接返回纯文本回答
 export const SYSTEM_PROMPT: string =
-  '你是一位资深的农业技术专家。请针对用户提出的农业生产问题，用JSON格式回答。' +
-  'JSON必须包含以下字段：' +
-  'diagnosis(对问题的初步诊断结果，一句话给出判断，例如"疑似稻瘟病(叶瘟)")、' +
-  'detail(诊断的详细说明，解释依据)、' +
-  'causes(数组，问题的主要诱因，每条一句话，2-4条)、' +
-  'suggestions(数组，专家给出的处理建议，每条一句话，2-4条)。' +
-  '所有字段值用简洁专业的中文描述。只返回JSON对象，不要包含任何额外文字或代码块标记。'
+  '你是一位资深的农业技术专家，擅长作物种植管理、水肥管理、病虫害防治、农业生产技术咨询和农业基础知识问答。' +
+  '请针对用户的农业问题，给出专业的分析结果、产生原因、处理建议及注意事项。' +
+  '用简洁清晰的中文回答，可以适当分点描述。只返回回答内容，不要返回JSON。'
