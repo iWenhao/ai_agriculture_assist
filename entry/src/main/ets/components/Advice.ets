@@ -186,6 +186,10 @@ export struct Advice {
     .padding(16)
     .backgroundColor('#FFFFFF')
     .borderRadius(12)
+    .border({
+      width: { left: 4 },
+      color: { left: '#FFA000' }
+    })
     .shadow({ radius: 6, color: 'rgba(0,0,0,0.06)', offsetY: 2 })
   }
 
@@ -346,6 +350,7 @@ export struct Advice {
       .width('100%')
       .height('100%')
       .align(Alignment.Top)
+      .backgroundColor('#F6F7F6')
       .scrollable(ScrollDirection.Vertical)
       .scrollBar(BarState.Auto)
   }
