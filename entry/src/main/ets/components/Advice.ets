@@ -8,7 +8,6 @@ import {
   extractBody,
   formatDate,
   requestAgines,
-  AginesMessage,
   AginesRequestBody
 } from '../common/Utils'
 
@@ -302,14 +301,29 @@ export struct Advice {
           .borderRadius(12)
           .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 1 })
 
-          // 生成按钮（必填项校验通过且非加载态时可点击）
-          Button(this.loading ? '正在生成建议...' : '生成种植管理建议')
+          // 生成按钮（必填项校验通过且非加载态时可点击；加载态时图标+文字显示在按钮内）
+          Button() {
+            if (this.loading) {
+              Row({ space: 8 }) {
+                LoadingProgress()
+                  .width(18)
+                  .height(18)
+                  .color('#FFFFFF')
+                Text('正在生成建议...')
+                  .fontSize(15)
+                  .fontColor('#FFFFFF')
+                  .fontWeight(FontWeight.Bold)
+              }
+            } else {
+              Text('生成种植管理建议')
+                .fontSize(15)
+                .fontColor('#FFFFFF')
+                .fontWeight(FontWeight.Bold)
+            }
+          }
             .type(ButtonType.Capsule)
             .width('100%')
             .height(48)
-            .fontSize(15)
-            .fontColor('#FFFFFF')
-            .fontWeight(FontWeight.Bold)
             .backgroundColor('#2e7d32')
             .opacity((this.cropTypeIndex >= 0 && this.growthStageIndex >= 0
               && this.plantDate.trim().length > 0 && this.problemText.trim().length > 0
@@ -318,22 +332,6 @@ export struct Advice {
               && this.plantDate.trim().length > 0 && this.problemText.trim().length > 0
               && !this.loading)
             .onClick(() => this.onGenerate())
-
-          // 加载中提示
-          if (this.loading) {
-            Row({ space: 8 }) {
-              LoadingProgress()
-                .width(20)
-                .height(20)
-                .color('#2e7d32')
-              Text('AI 农技专家正在生成专属建议…')
-                .fontSize(14)
-                .fontColor('#40493d')
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.Center)
-            .padding({ top: 4, bottom: 4 })
-          }
 
           // 结果卡片
           if (this.adviceResult !== null && !this.loading) {
