@@ -231,7 +231,7 @@ export struct Qna {
             .width(20)
             .height(20)
             .color('#2e7d32')
-          Text('AI 正在思考…')
+          Text('AI 农技专家正在思考…')
             .fontSize(14)
             .fontColor('#40493d')
         }
