@@ -1,19 +1,9 @@
 // AI农技问答组件
 import { http } from '@kit.NetworkKit';
 import { AGINES_API_URL, AGINES_MODEL, AGINES_API_KEY, SYSTEM_PROMPT } from '../common/Constants';
-import { nowTime, extractDelta, stripMarkdown } from '../common/Utils'
+import { nowTime, extractDelta, stripMarkdown, MsgRole, ChatMessage, appendAiText, qnaScrollToBottom } from '../common/Utils'
 
-// 消息角色类型定义
-type MsgRole = 'user' | 'ai';
 
-// 单条消息的数据结构
-interface ChatMessage {
-  role: MsgRole;  // 角色
-  text: string; // 消息内容
-  time: string // 时间戳
-}
-
-// 适配后端API的消息结构
 interface AginesMessage {
   role: string;
   content: string;
@@ -45,7 +35,7 @@ export struct Qna {
   }
 
   // --- 业务逻辑：发送请求 ---
-  private async onSend(): Promise<void> {  // 无返回值的异步执行网络请求
+  private async onSend(): Promise<void> { // 无返回值的异步执行网络请求
     const q = this.inputText.trim();
     // 防呆处理：内容为空或正在加载时直接返回
     if (q.length === 0 || this.loading) {
@@ -69,27 +59,27 @@ export struct Qna {
     提前推入一条空消息，我们的 UI 可以立刻判断：如果 msg.text.length === 0，就显示一个 LoadingProgress（转圈圈）和“AI 正在思考…”的提示。这能给用户一个即时的视觉反馈，让他们知道系统正在工作。*/
     const aiTime = nowTime();
     this.messageList.push({ role: 'ai', text: '', time: aiTime });
-    this.scrollToBottom(); // 滚动到聊天底部
+    qnaScrollToBottom(this.scroller); // 滚动到聊天底部
     // 3. 构造请求体 (只保留最近6条消息，防止上下文过长)
-     const messages: AginesMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
-     const recent = this.messageList.slice(-6); // 取最后6条
-     for (const msg of recent) {
-       // 将 'ai' 角色映射为 'assistant' 以符合OpenAI/Agines格式
-       messages.push({ role: msg.role === 'ai' ? 'assistant' : msg.role, content: msg.text });
-     }
+    const messages: AginesMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+    const recent = this.messageList.slice(-6); // 取最后6条
+    for (const msg of recent) {
+      // 将 'ai' 角色映射为 'assistant' 以符合OpenAI/Agines格式
+      messages.push({ role: msg.role === 'ai' ? 'assistant' : msg.role, content: msg.text });
+    }
+    console.log('=====messages====', JSON.stringify(messages))
+    const requestBody: AginesRequestBody = {
+      model: AGINES_MODEL,
+      messages
+    };
 
-     const requestBody: AginesRequestBody = {
-       model: AGINES_MODEL,
-       messages
-     };
-
-     try {
-       // 调用非流式请求方法（为了解决预览器兼容性及类型报错）
-       await this.sendNormalRequest(requestBody);
-     } catch (err) {
-       console.error('=====请求失败=====', err);
-       this.loading = false;
-     }
+    try {
+      // 调用非流式请求方法（为了解决预览器兼容性及类型报错）
+      await this.sendNormalRequest(requestBody);
+    } catch (err) {
+      console.error('=====请求失败=====', err);
+      this.loading = false;
+    }
   }
 
   // --- 网络请求：非流式 ---
@@ -120,53 +110,27 @@ export struct Qna {
         } else if (response.result) {
           resultStr = JSON.stringify(response.result);
         }
-
-        // 提取文本内容
+        console.log('===ai结果', resultStr)
         const content = extractDelta(resultStr);
         if (content.length > 0) {
-          this.appendAiText(content);
+          this.messageList = appendAiText(this.messageList, content);
+          qnaScrollToBottom(this.scroller);
         } else {
-          this.appendAiText('（未获取到有效回答）');
+          this.messageList = appendAiText(this.messageList, '（未获取到有效回答）');
+          qnaScrollToBottom(this.scroller);
         }
       } else {
-        this.appendAiText(`请求失败，状态码: ${response.responseCode}`);
+        this.messageList = appendAiText(this.messageList, `请求失败，状态码: ${response.responseCode}`);
+        qnaScrollToBottom(this.scroller);
       }
     } catch (err) {
       console.error('非流式请求失败', err);
-      this.appendAiText('请求失败，请检查网络或 API Key 配置');
+      this.messageList = appendAiText(this.messageList, '请求失败，请检查网络或 API Key 配置');
+      qnaScrollToBottom(this.scroller);
     } finally {
       httpRequest.destroy();
       this.loading = false;
     }
-  }
-
-  // --- 工具方法 ---
-
-  // 追加AI文字（核心：UI刷新）
-  private appendAiText(delta: string): void {
-    if (this.messageList.length === 0) {
-      return;
-    }
-    const last = this.messageList[this.messageList.length - 1];
-    if (last.role === 'ai') {
-      // ArkTS状态更新机制：必须创建新对象并重新赋值数组才能触发UI刷新
-      const newMsg: ChatMessage = {
-        role: 'ai',
-        text: last.text + delta,
-        time: last.time
-      };
-      const newList: ChatMessage[] = this.messageList.slice(0, -1);
-      newList.push(newMsg);
-      this.messageList = newList; // 触发UI重绘
-      this.scrollToBottom();
-    }
-  }
-
-  // 滚动到底部
-  private scrollToBottom(): void {
-    setTimeout(() => {
-      this.scroller.scrollEdge(Edge.Bottom);
-    }, 50);
   }
 
   // --- UI 组件定义 ---
@@ -201,7 +165,8 @@ export struct Qna {
   }
 
   // AI气泡公共样式
-  @Styles  // 定义组件重用样式的装饰器
+  @Styles
+  // 定义组件重用样式的装饰器
   aiBubbleStyle() {
     .padding({
       left: 14,
@@ -325,10 +290,10 @@ export struct Qna {
       // 消息列表
       // Scroller 控制器
       // this.scroller.scrollEdge(Edge.Bottom);
-     /* Edge.Top：滚动到顶部（在垂直滚动中，Edge.Start 的效果与 Edge.Top 完全相同）。
-      Edge.Bottom：滚动到底部（在垂直滚动中，Edge.End 的效果与 Edge.Bottom 完全相同）。
-      Edge.Start：滚动到起始边缘（如果是横向滚动，就是最左侧）。
-      Edge.End：滚动到结束边缘（如果是横向滚动，就是最右侧）。*/
+      /* Edge.Top：滚动到顶部（在垂直滚动中，Edge.Start 的效果与 Edge.Top 完全相同）。
+       Edge.Bottom：滚动到底部（在垂直滚动中，Edge.End 的效果与 Edge.Bottom 完全相同）。
+       Edge.Start：滚动到起始边缘（如果是横向滚动，就是最左侧）。
+       Edge.End：滚动到结束边缘（如果是横向滚动，就是最右侧）。*/
       List({ space: 16, scroller: this.scroller }) {
         ForEach(this.messageList, (msg: ChatMessage) => {
           ListItem() {

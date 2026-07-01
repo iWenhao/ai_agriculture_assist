@@ -161,3 +161,42 @@ export async function requestAgines(requestBody: AginesRequestBody): Promise<str
     httpRequest.destroy();
   }
 }
+
+// ==================== AI农技问答的工具函数 ====================
+
+// 消息角色类型定义
+export type MsgRole = 'user' | 'ai';
+
+// 单条消息的数据结构
+export interface ChatMessage {
+  role: MsgRole; // 角色
+  text: string; // 消息内容
+  time: string // 时间戳
+}
+
+// 追加AI文字（核心：UI刷新）
+export function appendAiText(messageList: ChatMessage[], delta: string): ChatMessage[] {
+  if (messageList.length === 0) {
+    return messageList;
+  }
+  const last = messageList[messageList.length - 1];
+  if (last.role === 'ai') {
+    // ArkTS状态更新机制：必须创建新对象并重新赋值数组才能触发UI刷新
+    const newMsg: ChatMessage = {
+      role: 'ai',
+      text: last.text + delta,
+      time: last.time
+    };
+    const newList: ChatMessage[] = messageList.slice(0, -1);
+    newList.push(newMsg);
+    return newList; // 触发UI重绘
+  }
+  return messageList;
+}
+
+// 滚动到底部
+export function qnaScrollToBottom(scroller: Scroller): void {
+  setTimeout(() => {
+    scroller.scrollEdge(Edge.Bottom);
+  }, 50);
+}
