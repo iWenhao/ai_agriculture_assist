@@ -1,3 +1,8 @@
+import { http } from '@kit.NetworkKit';
+import { AGINES_API_URL, AGINES_API_KEY } from './Constants';
+
+// ==================== 以下为原有工具函数 ====================
+
 // 获取当前时间格式化字符串 (HH:mm)
 export function nowTime(): string {
   const d = new Date();
@@ -46,4 +51,113 @@ export function stripMarkdown(md: string): string {
   text = text.replace(/^#{1,3}\s*/gm, ''); // 去除标题
   text = text.replace(/^[-*]\s+/gm, '• '); // 列表符号转圆点
   return text;
+}
+
+// ==================== 以下为新增工具函数（种植顾问模块） ====================
+
+// 适配后端API的消息结构
+export interface AginesMessage {
+  role: string;
+  content: string;
+}
+
+// 请求体结构
+export interface AginesRequestBody {
+  model: string;
+  messages: AginesMessage[];
+  stream?: boolean; // 是否开启流式
+}
+
+// 将 DatePicker 选中的年月日格式化为 YYYY-MM-DD
+export function formatDate(year: number, month: number, day: number): string {
+  const m = (month + 1).toString().padStart(2, '0');
+  const d = day.toString().padStart(2, '0');
+  return `${year}-${m}-${d}`;
+}
+
+// 按"【...】"将整段建议切分为多个小节字符串（含标题）
+export function splitSections(text: string): string[] {
+  const result: string[] = [];
+  try {
+    // 用正则匹配所有"【标题】"的位置，记录每个标题的起始下标
+    const reg = /【[^【】]+】/g;
+    const positions: number[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = reg.exec(text)) !== null) {
+      if (m.index !== undefined) {
+        positions.push(m.index);
+      }
+    }
+    if (positions.length === 0) {
+      return result;
+    }
+    // 按相邻标题下标切分字符串
+    for (let i = 0; i < positions.length; i++) {
+      const start = positions[i];
+      const end = i + 1 < positions.length ? positions[i + 1] : text.length;
+      result.push(text.substring(start, end));
+    }
+  } catch (err) {
+    console.error('切分建议小节失败', err);
+  }
+  return result;
+}
+
+// 从小节字符串中提取"【标题】"
+export function extractTitle(section: string): string {
+  const start = section.indexOf('【');
+  const end = section.indexOf('】');
+  if (start >= 0 && end > start) {
+    return section.substring(start, end + 1);
+  }
+  return '【建议】';
+}
+
+// 从小节字符串中去掉标题，得到正文
+export function extractBody(section: string): string {
+  const end = section.indexOf('】');
+  if (end >= 0) {
+    return section.substring(end + 1).trim();
+  }
+  return section.trim();
+}
+
+// 统一的 Agines 大模型非流式请求：发送请求体并返回解析后的文本内容
+// 返回值约定：成功返回正文；失败返回以 "[错误]" 开头的提示字符串
+export async function requestAgines(requestBody: AginesRequestBody): Promise<string> {
+  const httpRequest = http.createHttp();
+  try {
+    const normalBody: AginesRequestBody = {
+      model: requestBody.model,
+      messages: requestBody.messages,
+      stream: false  // 强制非流式
+    };
+
+    const response = await httpRequest.request(AGINES_API_URL, {
+      method: http.RequestMethod.POST,
+      header: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${AGINES_API_KEY}`
+      },
+      extraData: JSON.stringify(normalBody),
+      expectDataType: http.HttpDataType.STRING
+    });
+
+    if (response.responseCode === 200) {
+      let resultStr: string = '';
+      if (typeof response.result === 'string') {
+        resultStr = response.result;
+      } else if (response.result) {
+        resultStr = JSON.stringify(response.result);
+      }
+      const content = extractDelta(resultStr);
+      return content.length > 0 ? content : '[错误]未获取到有效回答';
+    }
+    return `[错误]请求失败，状态码: ${response.responseCode}`;
+  } catch (err) {
+    console.error('Agines 请求失败', err);
+    return '[错误]请求失败，请检查网络或 API Key 配置';
+  } finally {
+    httpRequest.destroy();
+  }
 }

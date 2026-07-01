@@ -1,20 +1,16 @@
 // 智能种植顾问
-import { http } from '@kit.NetworkKit';
-import { AGINES_API_URL, AGINES_MODEL, AGINES_API_KEY, ADVICE_PROMPT } from '../common/Constants';
-import { nowTime, extractDelta, stripMarkdown } from '../common/Utils'
-
-// 适配后端API的消息结构
-interface AginesMessage {
-  role: string;
-  content: string;
-}
-
-// 请求体结构
-interface AginesRequestBody {
-  model: string;
-  messages: AginesMessage[];
-  stream?: boolean; // 是否开启流式
-}
+import { AGINES_MODEL, ADVICE_PROMPT } from '../common/Constants';
+import {
+  nowTime,
+  stripMarkdown,
+  splitSections,
+  extractTitle,
+  extractBody,
+  formatDate,
+  requestAgines,
+  AginesMessage,
+  AginesRequestBody
+} from '../common/Utils'
 
 // 建议结果项（四类建议）
 interface AdviceResult {
@@ -78,72 +74,33 @@ export struct Advice {
       `当前问题：${problem}`;
 
     // 2. 构造请求体（前置专属系统提示词）
-    const messages: AginesMessage[] = [
-      { role: 'system', content: ADVICE_PROMPT },
-      { role: 'user', content: userContent }
-    ];
     const requestBody: AginesRequestBody = {
       model: AGINES_MODEL,
-      messages
+      messages: [
+        { role: 'system', content: ADVICE_PROMPT },
+        { role: 'user', content: userContent }
+      ]
     };
 
-    try {
-      await this.sendNormalRequest(requestBody);
-    } catch (err) {
-      console.error('=====种植建议生成失败=====', err);
-      this.loading = false;
-    }
+    // 3. 调用公共请求方法
+    const content = await requestAgines(requestBody);
+    this.adviceResult = {
+      content: content.startsWith('[错误]') ? content.substring(4) : stripMarkdown(content),
+      time: nowTime()
+    };
+    this.loading = false;
   }
 
-  // --- 网络请求：非流式（与 Qna 组件保持一致，预览器兼容） ---
-  private async sendNormalRequest(requestBody: AginesRequestBody): Promise<void> {
-    const httpRequest = http.createHttp();
-    try {
-      const normalBody: AginesRequestBody = {
-        model: requestBody.model,
-        messages: requestBody.messages,
-        stream: false  // 强制设为非流式请求
-      };
-
-      const response = await httpRequest.request(AGINES_API_URL, {
-        method: http.RequestMethod.POST,
-        header: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${AGINES_API_KEY}`
-        },
-        extraData: JSON.stringify(normalBody),
-        expectDataType: http.HttpDataType.STRING
-      });
-
-      if (response.responseCode === 200) {
-        let resultStr: string = '';
-        if (typeof response.result === 'string') {
-          resultStr = response.result;
-        } else if (response.result) {
-          resultStr = JSON.stringify(response.result);
-        }
-
-        const content = extractDelta(resultStr);
-        this.adviceResult = {
-          content: content.length > 0 ? stripMarkdown(content) : '（未获取到有效建议）',
-          time: nowTime()
-        };
-      } else {
-        this.adviceResult = {
-          content: `生成失败，状态码: ${response.responseCode}`,
-          time: nowTime()
-        };
+  // 弹出系统日期选择器
+  private showDatePicker(): void {
+    DatePickerDialog.show({
+      start: new Date('2020-01-01'),
+      end: new Date(),
+      selected: new Date(),
+      onAccept: (value: DatePickerResult) => {
+        this.plantDate = formatDate(value.year, value.month, value.day);
       }
-    } catch (err) {
-      console.error('种植建议请求失败', err);
-      this.adviceResult = {
-        content: '生成失败，请检查网络或 API Key 配置',
-        time: nowTime()
-      };
-    } finally {
-      httpRequest.destroy();
-      this.loading = false;
-    }
+    });
   }
 
   // --- UI 组件定义 ---
@@ -213,9 +170,9 @@ export struct Advice {
           .fontSize(14)
           .fontColor('#999999')
           .width('100%')
-      } else if (this.splitSections(this.adviceResult!.content).length > 0) {
-        ForEach(this.splitSections(this.adviceResult!.content), (sec: string) => {
-          this.ResultSection(this.extractTitle(sec), this.extractBody(sec))
+      } else if (splitSections(this.adviceResult!.content).length > 0) {
+        ForEach(splitSections(this.adviceResult!.content), (sec: string) => {
+          this.ResultSection(extractTitle(sec), extractBody(sec))
         })
       } else {
         Text(this.adviceResult!.content)
@@ -230,73 +187,6 @@ export struct Advice {
     .backgroundColor('#FFFFFF')
     .borderRadius(12)
     .shadow({ radius: 6, color: 'rgba(0,0,0,0.06)', offsetY: 2 })
-  }
-
-  // --- 文本切分工具方法 ---
-  // 按"【...】"将整段建议切分为多个小节字符串（含标题）
-  private splitSections(text: string): string[] {
-    const result: string[] = [];
-    try {
-      // 用正则匹配所有"【标题】"的位置，记录每个标题的起始下标
-      const reg = /【[^【】]+】/g;
-      const positions: number[] = [];
-      let m: RegExpExecArray | null;
-      while ((m = reg.exec(text)) !== null) {
-        if (m.index !== undefined) {
-          positions.push(m.index);
-        }
-      }
-      if (positions.length === 0) {
-        return result;
-      }
-      // 按相邻标题下标切分字符串
-      for (let i = 0; i < positions.length; i++) {
-        const start = positions[i];
-        const end = i + 1 < positions.length ? positions[i + 1] : text.length;
-        result.push(text.substring(start, end));
-      }
-    } catch (err) {
-      console.error('切分建议小节失败', err);
-    }
-    return result;
-  }
-
-  // 从小节字符串中提取"【标题】"
-  private extractTitle(section: string): string {
-    const start = section.indexOf('【');
-    const end = section.indexOf('】');
-    if (start >= 0 && end > start) {
-      return section.substring(start, end + 1);
-    }
-    return '【建议】';
-  }
-
-  // 从小节字符串中去掉标题，得到正文
-  private extractBody(section: string): string {
-    const end = section.indexOf('】');
-    if (end >= 0) {
-      return section.substring(end + 1).trim();
-    }
-    return section.trim();
-  }
-
-  // 将 DatePicker 选中的年月日格式化为 YYYY-MM-DD
-  private formatDate(year: number, month: number, day: number): string {
-    const m = (month + 1).toString().padStart(2, '0');
-    const d = day.toString().padStart(2, '0');
-    return `${year}-${m}-${d}`;
-  }
-
-  // 弹出系统日期选择器
-  private showDatePicker(): void {
-    DatePickerDialog.show({
-      start: new Date('2020-01-01'),
-      end: new Date(),
-      selected: new Date(),
-      onAccept: (value: DatePickerResult) => {
-        this.plantDate = this.formatDate(value.year, value.month, value.day);
-      }
-    });
   }
 
   // --- 页面主结构 ---
