@@ -254,7 +254,7 @@ export struct Advice {
       }
     }
     .width('100%')
-    .padding(16)
+    .padding(20)
     .backgroundColor('#FFFFFF')
     .borderRadius(12)
     // 左侧橙色边框作为视觉标识，区分于表单卡片
@@ -269,7 +269,7 @@ export struct Advice {
   build() {
     // 外层可滚动容器，防止键盘弹出或小屏设备内容溢出
     Scroll() {
-      Column({ space: 16 }) {
+      Column({ space: 30 }) {
 
         // ========== 作物状况信息表单卡片 ==========
         Column({ space: 16 }) {
@@ -298,7 +298,7 @@ export struct Advice {
                 .optionFont({ size: 14 })
                 .backgroundColor('#f7f8f5')
                 .borderRadius(8)
-                .divider({ strokeWidth: 0 })
+                .divider({ strokeWidth: 0 })  // 取消下划线
                 .onSelect((index: number) => {
                   this.cropTypeIndex = index;
                 })
@@ -373,7 +373,7 @@ export struct Advice {
         }
         // 表单卡片样式：白色背景 + 圆角 + 轻阴影
         .width('100%')
-        .padding(16)
+        .padding(20)
         .backgroundColor('#FFFFFF')
         .borderRadius(12)
         .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 1 })
