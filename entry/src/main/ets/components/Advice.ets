@@ -32,6 +32,29 @@ interface AdviceResult {
 }
 
 /**
+ * 单个分栏的视觉样式
+ * 由 getSectionStyle 根据标题分发得到
+ */
+interface SectionStyle {
+  icon: string; // 分类图标（emoji）
+  bg: string; // 卡片背景色
+  border: string; // 卡片边框色
+}
+
+/**
+ * 一个分栏的完整渲染数据
+ * 由 buildSectionsData 在生成结果时一次性算好，
+ * ForEach 只需遍历此数组并调用 ResultSection，避免在 UI 上下文里写逻辑
+ */
+interface SectionData {
+  icon: string;
+  title: string;
+  body: string;
+  bg: string;
+  border: string;
+}
+
+/**
  * 智能种植顾问组件
  *
  * 包含表单输入区、生成按钮和结果展示区三部分。
@@ -55,6 +78,12 @@ export struct Advice {
   @State loading: boolean = false;
   /** 生成的建议结果，null表示尚未生成或正在生成中 */
   @State adviceResult: AdviceResult | null = null;
+  /**
+   * 预处理好的分栏渲染数据（图标/标题/正文/配色）
+   * 在 onGenerate 拿到 content 后一次性算好，ForEach 直接遍历此数组
+   * 避免在 ArkUI Builder 上下文里写中间变量和方法调用
+   */
+  @State sectionsData: SectionData[] = [];
   /**
    * 作物类型下拉选项
    * 使用 ArkUI 内置 SelectOption 类型避免结构化类型报错
@@ -130,10 +159,13 @@ export struct Advice {
     const content = await requestAgines(requestBody);
 
     // 4. 解析结果：若以"[错误]"开头则截取错误信息，否则清洗Markdown格式
+    const finalContent: string = content.startsWith('[错误]') ? content.substring(4) : stripMarkdown(content);
     this.adviceResult = {
-      content: content.startsWith('[错误]') ? content.substring(4) : stripMarkdown(content),
+      content: finalContent,
       time: nowTime()
     };
+    // 5. 一次性算好所有分栏的样式数据，ForEach 直接遍历，避免 Builder 内做逻辑
+    this.sectionsData = this.buildSectionsData(finalContent);
 
     // 退出加载态
     this.loading = false;
@@ -181,28 +213,111 @@ export struct Advice {
   }
 
   /**
-   * 结果分段卡片构建器
-   * 将大模型返回的每个【标题】段落渲染为独立的图文块
-   * @param title - 段落标题（如"田间管理建议"）
-   * @param body - 段落正文内容
+   * 结果分段块构建器
+   * 将大模型返回的每个【标题】段落渲染为"标题行 + 内容卡片"两个独立元素
+   *
+   * 视觉规范：
+   * - 标题行：纯文字 + 图标，无背景/无边框/无圆角，字色 #166A16，正常字重
+   * - 内容卡片：1px 浅边框 + 8px 圆角 + 浅色背景，仅包裹正文
+   * - 标题与卡片之间留 6px 间距，各分栏之间在 ForEach 外层 Column 控制
+   *
+   * @param data - 单个分栏的完整渲染数据（由 buildSectionsData 预先生成）
    */
   @Builder
-  ResultSection(title: string, body: string) {
+  ResultSection(data: SectionData) {
     Column({ space: 6 }) {
-      Text(title)
-        .fontSize(14)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#2e7d32')  // 绿色标题，呼应农业主题
-        .width('100%')
+      // 标题行（卡片外）：图标 + 标题，不加粗，字号略小于正文
+      Row({ space: 6 }) {
+        Text(data.icon)
+          .fontSize(13)
+        Text(data.title)
+          .fontSize(13)
+          .fontColor('#166A16')
+      }
+      .width('100%')
 
-      Text(body)
+      // 内容卡片（只包正文）：浅背景 + 浅边框 + 圆角
+      Text(data.body)
         .fontSize(14)
-        .fontColor('#444444')
-        .lineHeight(22)       // 增加行高提升长文可读性
+        .fontColor('#3c4a3c')
+        .lineHeight(22)
         .width('100%')
+        .padding(12)
+        .backgroundColor(data.bg)
+        .borderRadius(8)
+        .border({
+          width: 1,
+          color: data.border
+        })
     }
     .width('100%')
-    .alignItems(HorizontalAlign.Start)
+  }
+
+  /**
+   * 根据【标题】查找对应的图标 / 背景色 / 边框色
+   * 配色采用 Material Design 50/100 档（最浅），柔和不刺眼
+   * 未匹配到预定义标题时使用中性灰样式兜底
+   */
+  private getSectionStyle(title: string): SectionStyle {
+    if (title === '【田间管理建议】') {
+      // 田间 → 麦穗 / 极浅绿底 + 浅绿边
+      const s: SectionStyle = { icon: '🌾', bg: '#F6FBF4', border: '#DCEDC8' };
+      return s;
+    } else if (title === '【水肥一体化指导】') {
+      // 水肥 → 水滴 / 极浅蓝底 + 浅蓝边
+      const s: SectionStyle = { icon: '💧', bg: '#F2F8FD', border: '#BBDEFB' };
+      return s;
+    } else if (title === '【病虫害预警】') {
+      // 病虫害 → 警示三角 / 极浅橙底 + 浅橙边
+      const s: SectionStyle = { icon: '⚠️', bg: '#FFF8F0', border: '#FFE0B2' };
+      return s;
+    } else if (title === '【后续生产管理建议】') {
+      // 后续生产 → 剪贴板 / 极浅紫底 + 浅紫边
+      const s: SectionStyle = { icon: '📋', bg: '#F8F4FA', border: '#E1BEE7' };
+      return s;
+    }
+    // 兜底：未匹配的中性灰样式
+    const s: SectionStyle = { icon: '•', bg: '#FAFAFA', border: '#E0E0E0' };
+    return s;
+  }
+
+  /**
+   * 把大模型返回的 content 拆分成"已计算好样式"的渲染数据数组
+   * 在普通方法里完成所有字符串处理 + 查表，避开 ArkUI Builder 的限制
+   * 标题字段额外去掉【】书名号，仅保留纯文字用于显示（查表仍用原始【】标题）
+   */
+  private buildSectionsData(content: string): SectionData[] {
+    const secs: string[] = splitSections(content);
+    const len: number = secs.length;
+    const result: SectionData[] = new Array<SectionData>(len);
+    for (let i: number = 0; i < len; i++) {
+      const sec: string = secs[i];
+      const t: string = extractTitle(sec);
+      const b: string = extractBody(sec);
+      const s: SectionStyle = this.getSectionStyle(t);
+      const cleanTitle: string = t.replace(/【|】/g, '');
+      const d: SectionData = {
+        icon: s.icon,
+        title: cleanTitle,
+        body: b,
+        bg: s.bg,
+        border: s.border
+      };
+      result[i] = d;
+    }
+    return result;
+  }
+
+  /**
+   * 获取今天的日期字符串（YYYY-MM-DD），用于结果卡片副标题
+   * 使用 en-CA locale 让标准库原生输出 YYYY-MM-DD
+   */
+  private getTodayStr(): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
   }
 
   /**
@@ -216,18 +331,17 @@ export struct Advice {
   @Builder
   AdviceResultCard() {
     Column({ space: 12 }) {
-      // 卡片头部：标题 + 生成时间
-      Row() {
-        Text('🌱 个性化种植管理建议')
-          .fontSize(16)
+      // 卡片头部：主标题 + 副标题（AI 来源 + 今天的年月日）
+      Column({ space: 4 }) {
+        Text('个性化种植管理建议')
+          .fontSize(18)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#1a1c1c')
+          .fontColor('#005E0F')
           .width('100%')
-        Text(this.adviceResult!.time)
+        Text(`由AI农技专家实时生成 · ${this.getTodayStr()}`)
           .fontSize(11)
-          .fontColor('#bfcaba')
+          .fontColor('#7A8B7A')
           .width('100%')
-          .margin({ top: -6 })
       }
 
       // 分隔线
@@ -243,11 +357,16 @@ export struct Advice {
           .fontSize(14)
           .fontColor('#999999')
           .width('100%')
-      } else if (splitSections(this.adviceResult!.content).length > 0) {
-        // 策略2：按【】标题分段渲染
-        ForEach(splitSections(this.adviceResult!.content), (sec: string) => {
-          this.ResultSection(extractTitle(sec), extractBody(sec))
-        })
+      } else if (this.sectionsData.length > 0) {
+        // 策略2：按【】标题分段渲染，数据已在 onGenerate 里预处理为 SectionData[]
+        // 外层 Column space 控制各分栏之间的间距，每个分栏内部 ResultSection 自己控制标题/卡片间距
+        Column({ space: 22 }) {
+          ForEach(this.sectionsData, (data: SectionData) => {
+            this.ResultSection(data);
+          })
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
       } else {
         // 策略3：无法分段时整体展示
         Text(this.adviceResult!.content)
