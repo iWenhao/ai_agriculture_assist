@@ -55,7 +55,7 @@ export struct Home {
     const targetUrl = `http://gggg.bt1.886966.xyz/API/tttt.php`;
     const requestUrl = `${targetUrl}?city=${city}&n=1`;
     try {
-      console.log('=====天气请求开始======');
+      // console.log('=====天气请求开始======');
       // http 3: 使用request 方法请求
       const response = await httpRequest.request(requestUrl, {
         method: http.RequestMethod.GET,
@@ -77,7 +77,7 @@ export struct Home {
   private parseWeatherText(text: string): void {
     // 以换行符 \n为分隔，把字符串拆成一个字符串数组
     const lines = text.split('\n');
-    console.log('lines', lines);
+    // console.log('lines', lines);
     let temp = '';
     let weatherText = '';
     let humidity = '';
@@ -85,14 +85,14 @@ export struct Home {
 
     // 数组循环
     for (const line of lines) {
-      console.log('line',line)
+      // console.log('line',line)
       const trimmed = line.trim();
       if (trimmed.startsWith('温度：') && temp === '') {
         // substring(3) 字符串截取到结尾
         // 等价于
         // str.substring(3, str.length);
         temp = trimmed.substring(3);
-        console.log('temp',temp)
+        // console.log('temp',temp)
       } else if (trimmed.startsWith('天气：') && weatherText === '') {
         weatherText = trimmed.substring(3);
       } else if (trimmed.startsWith('湿度：')) {
