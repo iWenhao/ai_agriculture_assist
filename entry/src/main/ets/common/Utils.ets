@@ -80,53 +80,6 @@ export function formatDate(year: number, month: number, day: number): string {
   }).format(new Date(year, month, day));
 }
 
-// 按"【...】"将整段建议切分为多个小节字符串（含标题）
-export function splitSections(text: string): string[] {
-  const result: string[] = [];
-  try {
-    // 用正则匹配所有"【标题】"的位置，记录每个标题的起始下标
-    const reg = /【[^【】]+】/g;
-    const positions: number[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = reg.exec(text)) !== null) {
-      if (m.index !== undefined) {
-        positions.push(m.index);
-      }
-    }
-    if (positions.length === 0) {
-      return result;
-    }
-    // 按相邻标题下标切分字符串
-    for (let i = 0; i < positions.length; i++) {
-      const start = positions[i];
-      const end = i + 1 < positions.length ? positions[i + 1] : text.length;
-      result.push(text.substring(start, end));
-    }
-  } catch (err) {
-    console.error('切分建议小节失败', err);
-  }
-  return result;
-}
-
-// 从小节字符串中提取"【标题】"
-export function extractTitle(section: string): string {
-  const start = section.indexOf('【');
-  const end = section.indexOf('】');
-  if (start >= 0 && end > start) {
-    return section.substring(start, end + 1);
-  }
-  return '【建议】';
-}
-
-// 从小节字符串中去掉标题，得到正文
-export function extractBody(section: string): string {
-  const end = section.indexOf('】');
-  if (end >= 0) {
-    return section.substring(end + 1).trim();
-  }
-  return section.trim();
-}
-
 // 统一的 Agines 大模型非流式请求：发送请求体并返回解析后的文本内容
 // 返回值约定：成功返回正文；失败返回以 "[错误]" 开头的提示字符串
 export async function requestAgines(requestBody: AginesRequestBody): Promise<string> {
@@ -216,7 +169,7 @@ export function qnaScrollToBottom(scroller: Scroller): void {
  * - JSON 前后夹杂了少量说明文字（取首个 { 到末个 } 的子串）
  * - 多余的空白与换行
  *
- * 解析失败返回 null，调用方应降级到原有的【】分段方案
+ * 解析失败返回 null，调用方应降级到整体原文展示
  */
 export function tryExtractJson(text: string): Record<string, Object> | null {
   try {

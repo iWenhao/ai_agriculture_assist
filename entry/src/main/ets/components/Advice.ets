@@ -4,19 +4,15 @@
  *
  * 功能概述：
  * 用户填写作物种类、生长阶段、种植时间及当前问题四个必填字段，
- * 调用 Agines 大模型生成个性化种植管理建议，并将结果按【】标题分段渲染为卡片。
+ * 调用 Agines 大模型生成个性化种植管理建议，并将模型返回的 JSON 解析为分栏卡片渲染。
  *
  * 依赖项：
  * - Constants: 模型名称(AGINES_MODEL)与系统提示词(ADVICE_PROMPT)
- * - Utils: 时间格式化、Markdown清洗、文本分段提取、API请求封装等工具函数
+ * - Utils: 时间格式化、Markdown清洗、API请求封装、JSON容错解析等工具函数
  */
 import { AGINES_MODEL, ADVICE_PROMPT } from '../common/Constants';
 import {
   nowTime,
-  stripMarkdown,
-  splitSections,
-  extractTitle,
-  extractBody,
   formatDate,
   requestAgines,
   tryExtractJson,
@@ -28,7 +24,7 @@ import {
  * 用于存储大模型返回的建议内容及生成时间戳
  */
 interface AdviceResult {
-  content: string; // 建议正文（已去除Markdown格式）
+  content: string; // 建议正文（大模型返回的原始内容，可能为JSON或错误提示）
   time: string // 建议生成的时间（用于展示时效性）
 }
 
@@ -44,7 +40,7 @@ interface SectionStyle {
 
 /**
  * 一个分栏的完整渲染数据
- * 由 buildSectionsData 在生成结果时一次性算好，
+ * 由 parseJsonSections 在生成结果时一次性算好，
  * ForEach 只需遍历此数组并调用 ResultSection，避免在 UI 上下文里写逻辑
  */
 interface SectionData {
@@ -117,7 +113,7 @@ export struct Advice {
    * 3. 拼装用户输入为结构化文本
    * 4. 构造含系统提示词的请求体
    * 5. 调用 Agines API 获取结果
-   * 6. 清洗Markdown并记录时间戳
+   * 6. 记录时间戳并解析JSON为分栏数据
    */
   private async onGenerate(): Promise<void> {
     // 防呆：加载中禁止重复触发
@@ -159,14 +155,14 @@ export struct Advice {
     // 3. 发起API请求并处理响应
     const content = await requestAgines(requestBody);
 
-    // 4. 解析结果：若以"[错误]"开头则截取错误信息，否则清洗Markdown格式
-    const finalContent: string = content.startsWith('[错误]') ? content.substring(4) : stripMarkdown(content);
+    // 4. 解析结果：若以"[错误]"开头则截取错误信息，否则原样保留（JSON 解析交给 parseJsonSections）
+    const finalContent: string = content.startsWith('[错误]') ? content.substring(4) : content;
     this.adviceResult = {
       content: finalContent,
       time: nowTime()
     };
-    // 5. 一次性算好所有分栏的样式数据，ForEach 直接遍历，避免 Builder 内做逻辑
-    this.sectionsData = this.buildSectionsData(finalContent);
+    // 5. 一次性解析JSON并算好所有分栏的样式数据，ForEach 直接遍历，避免 Builder 内做逻辑
+    this.sectionsData = this.parseJsonSections(finalContent);
 
     // 退出加载态
     this.loading = false;
@@ -215,14 +211,14 @@ export struct Advice {
 
   /**
    * 结果分段块构建器
-   * 将大模型返回的每个【标题】段落渲染为"标题行 + 内容卡片"两个独立元素
+   * 将大模型返回的 JSON 中的每个 section 渲染为"标题行 + 内容卡片"两个独立元素
    *
    * 视觉规范：
    * - 标题行：纯文字 + 图标，无背景/无边框/无圆角，字色 #166A16，正常字重
    * - 内容卡片：1px 浅边框 + 8px 圆角 + 浅色背景，仅包裹正文
    * - 标题与卡片之间留 6px 间距，各分栏之间在 ForEach 外层 Column 控制
    *
-   * @param data - 单个分栏的完整渲染数据（由 buildSectionsData 预先生成）
+   * @param data - 单个分栏的完整渲染数据（由 parseJsonSections 预先生成）
    */
   @Builder
   ResultSection(data: SectionData) {
@@ -259,25 +255,23 @@ export struct Advice {
   /**
    * 根据分栏标题查找对应的图标 / 背景色 / 边框色
    * 配色采用 Material Design 50/100 档（最浅），柔和不刺眼
-   * 内部统一清洗【】书名号后再比较，兼容 JSON 路径（不带【】）和【】兜底路径（带【】）
    * 图标使用 entry/src/main/resources/base/media/ 下的本地 png 资源
    * 未匹配到预定义标题时使用中性灰样式兜底
    */
   private getSectionStyle(title: string): SectionStyle {
-    const key: string = title.replace(/【|】/g, '');
-    if (key === '田间管理建议') {
+    if (title === '田间管理建议') {
       // 田间 → 农作物图标 corp.png / 极浅绿底 + 浅绿边
       const s: SectionStyle = { icon: $r('app.media.corp'), bg: '#F6FBF4', border: '#DCEDC8' };
       return s;
-    } else if (key === '水肥一体化指导') {
+    } else if (title === '水肥一体化指导') {
       // 水肥 → 水滴图标 water.png / 极浅蓝底 + 浅蓝边
       const s: SectionStyle = { icon: $r('app.media.water'), bg: '#F2F8FD', border: '#BBDEFB' };
       return s;
-    } else if (key === '病虫害预警') {
+    } else if (title === '病虫害预警') {
       // 病虫害 → 虫子图标 insect.png / 极浅橙底 + 浅橙边
       const s: SectionStyle = { icon: $r('app.media.insect'), bg: '#FFF8F0', border: '#FFE0B2' };
       return s;
-    } else if (key === '后续生产管理建议') {
+    } else if (title === '后续生产管理建议') {
       // 后续生产 → 手册图标 book.png / 极浅紫底 + 浅紫边
       const s: SectionStyle = { icon: $r('app.media.book'), bg: '#F8F4FA', border: '#E1BEE7' };
       return s;
@@ -288,26 +282,8 @@ export struct Advice {
   }
 
   /**
-   * 把大模型返回的 content 拆分成"已计算好样式"的渲染数据数组
-   *
-   * 双轨解析：
-   * 1) 优先尝试 JSON 解析（结构稳定、不依赖正则）
-   * 2) 失败则降级到【】分段方案（兼容老格式输出或偶发模型抽风）
-   * 3) 两条路径都失败则返回空数组，UI 退到"无法分段时整体展示"
-   */
-  private buildSectionsData(content: string): SectionData[] {
-    // 路径 1：JSON 解析
-    const jsonResult: SectionData[] = this.parseJsonSections(content);
-    if (jsonResult.length > 0) {
-      return jsonResult;
-    }
-    // 路径 2：【】兜底
-    return this.parseBracketSections(content);
-  }
-
-  /**
-   * JSON 路径：从 content 中提取 {"sections":[{"title":"...","content":"..."}, ...]}
-   * 任一字段缺失或类型不匹配都跳过该条
+   * 把大模型返回的 content 解析成"已计算好样式"的渲染数据数组
+   * 解析失败返回空数组，UI 自动退到"整体原文展示"
    */
   private parseJsonSections(content: string): SectionData[] {
     const obj: Record<string, Object> | null = tryExtractJson(content);
@@ -347,38 +323,6 @@ export struct Advice {
   }
 
   /**
-   * 【】兜底路径：按【】书名号切分文本，提取标题和正文
-   * 用于兼容模型偶尔输出非 JSON 格式的退化情况
-   */
-  private parseBracketSections(content: string): SectionData[] {
-    const secs: string[] = splitSections(content);
-    const len: number = secs.length;
-    const result: SectionData[] = new Array<SectionData>(len);
-    let valid: number = 0;
-    for (let i: number = 0; i < len; i++) {
-      const sec: string = secs[i];
-      const t: string = extractTitle(sec);
-      const b: string = extractBody(sec);
-      if (b.length === 0) {
-        continue;
-      }
-      const s: SectionStyle = this.getSectionStyle(t);
-      const cleanTitle: string = t.replace(/【|】/g, '');
-      const d: SectionData = {
-        icon: s.icon,
-        title: cleanTitle,
-        body: b,
-        bg: s.bg,
-        border: s.border
-      };
-      result[valid] = d;
-      valid++;
-    }
-    // 裁剪到实际写入的长度（避免空槽位）
-    return result.slice(0, valid);
-  }
-
-  /**
    * 获取今天的日期字符串（YYYY-MM-DD），用于结果卡片副标题
    * 使用 en-CA locale 让标准库原生输出 YYYY-MM-DD
    */
@@ -395,8 +339,8 @@ export struct Advice {
    *
    * 渲染逻辑：
    * - 内容为空时显示占位提示
-   * - 内容可按【】分段时，逐段渲染为 ResultSection
-   * - 无法分段时整体作为纯文本展示（兼容非标准格式的AI回复）
+   * - content 可解析为 JSON 分栏时，逐段渲染为 ResultSection
+   * - 无法解析为 JSON 时整体作为纯文本展示（兼容非标准格式的AI回复）
    */
   @Builder
   AdviceResultCard() {
@@ -422,7 +366,7 @@ export struct Advice {
           .fontColor('#999999')
           .width('100%')
       } else if (this.sectionsData.length > 0) {
-        // 策略2：按【】标题分段渲染，数据已在 onGenerate 里预处理为 SectionData[]
+        // 策略2：按 JSON sections 分段渲染，数据已在 onGenerate 里预处理为 SectionData[]
         // 外层 Column space 控制各分栏之间的间距，每个分栏内部 ResultSection 自己控制标题/卡片间距
         Column({ space: 22 }) {
           ForEach(this.sectionsData, (data: SectionData) => {
