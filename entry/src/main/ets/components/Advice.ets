@@ -84,7 +84,9 @@ export struct Advice {
   @State sectionsData: SectionData[] = [];
   /**
    * 作物类型下拉选项
-   * 使用 ArkUI 内置 SelectOption 类型避免结构化类型报错
+   * SelectOption 结构：{ value?: string | Resource, icon?: Resource }
+   *   - value：选项显示的文本（必填）
+   *   - icon：选项前的图标资源（可选，如 $r('app.media.xxx')）
    * 涵盖主要粮食、蔬菜、水果及兜底的"其他"选项
    */
   private cropTypeOptions: SelectOption[] = [
@@ -95,6 +97,7 @@ export struct Advice {
   ];
   /**
    * 生长阶段下拉选项
+   * SelectOption 结构：{ value?: string | Resource, icon?: Resource }
    * 采用通用阶段划分，适配多种作物的共性生长周期
    */
   private growthStageOptions: SelectOption[] = [
@@ -180,11 +183,11 @@ export struct Advice {
    */
   private showDatePicker(): void {
     this.getUIContext().showDatePickerDialog({
-      start: new Date('2020-01-01'),
-      end: new Date(),
-      selected: new Date(),
-      onAccept: (value: DatePickerResult) => {
-        this.plantDate = formatDate(value.year, value.month, value.day);
+      start: new Date('2020-01-01'),     // 可选日期范围的起始值
+      end: new Date(),                    // 可选日期范围的结束值（当天）
+      selected: new Date(),               // 弹窗打开时默认选中的日期
+      onAccept: (value: DatePickerResult) => {  // 用户点击"确定"后的回调
+        this.plantDate = formatDate(value.year, value.month, value.day);  // 格式化为 YYYY-MM-DD 并写入状态
       }
     });
   }
@@ -405,22 +408,22 @@ export struct Advice {
             // 作物类型选择器（必填）
             Column({ space: 8 }) {
               this.FieldLabel('作物类型', true)
-              Select(this.cropTypeOptions)
-                .selected(this.cropTypeIndex)
+              Select(this.cropTypeOptions)          // 传入下拉选项数组
+                .selected(this.cropTypeIndex)       // 当前选中项的下标，-1 表示未选择
                 // 未选择时显示灰色提示文案，选中后显示加粗的值
                 .value(this.cropTypeIndex >= 0
                   ? this.cropTypeOptions[this.cropTypeIndex].value as string
                   : '请选择作物类型')
-                .width('100%')
-                .font({ size: 14 })
-                .fontColor('#1a1c1c')
-                .selectedOptionFont({ size: 14, weight: FontWeight.Bold })
-                .optionFont({ size: 14 })
-                .backgroundColor('#f7f8f5')
-                .borderRadius(8)
-                .divider({ strokeWidth: 0 })  // 取消下划线
-                .onSelect((index: number) => {
-                  this.cropTypeIndex = index;
+                .width('100%')                      // 选择器整体宽度
+                .font({ size: 14 })                 // 触发区域的文字大小
+                .fontColor('#1a1c1c')               // 触发区域的文字颜色
+                .selectedOptionFont({ size: 14, weight: FontWeight.Bold })  // 下拉列表中选中项的字体样式
+                .optionFont({ size: 14 })           // 下拉列表中未选中项的字体大小
+                .backgroundColor('#f7f8f5')         // 选择器背景色（浅灰绿）
+                .borderRadius(8)                    // 选择器圆角
+                .divider({ strokeWidth: 0 })        // 取消选项之间的下划线分隔
+                .onSelect((index: number) => {     // 用户选中某项后的回调，index 为选中项在数组中的下标
+                  this.cropTypeIndex = index;       // 更新选中下标状态，触发 UI 刷新
                 })
             }
             .layoutWeight(1)
@@ -429,21 +432,21 @@ export struct Advice {
             // 生长阶段选择器（必填）
             Column({ space: 8 }) {
               this.FieldLabel('生长阶段', true)
-              Select(this.growthStageOptions)
-                .selected(this.growthStageIndex)
-                .value(this.growthStageIndex >= 0
+              Select(this.growthStageOptions)       // 传入生长阶段下拉选项数组
+                .selected(this.growthStageIndex)    // 当前选中项的下标，-1 表示未选择
+                .value(this.growthStageIndex >= 0    // 触发区域显示的文本：已选则显示选项值，未选则显示占位提示
                   ? this.growthStageOptions[this.growthStageIndex].value as string
                   : '请选择生长阶段')
-                .width('100%')
-                .font({ size: 14 })
-                .fontColor('#1a1c1c')
-                .selectedOptionFont({ size: 14, weight: FontWeight.Bold })
-                .optionFont({ size: 14 })
-                .backgroundColor('#f7f8f5')
-                .borderRadius(8)
-                .divider({ strokeWidth: 0 })
-                .onSelect((index: number) => {
-                  this.growthStageIndex = index;
+                .width('100%')                      // 选择器整体宽度
+                .font({ size: 14 })                 // 触发区域的文字大小
+                .fontColor('#1a1c1c')               // 触发区域的文字颜色
+                .selectedOptionFont({ size: 14, weight: FontWeight.Bold })  // 下拉列表中选中项的字体样式
+                .optionFont({ size: 14 })           // 下拉列表中未选中项的字体大小
+                .backgroundColor('#f7f8f5')         // 选择器背景色
+                .borderRadius(8)                    // 选择器圆角
+                .divider({ strokeWidth: 0 })        // 取消选项之间的下划线分隔
+                .onSelect((index: number) => {     // 用户选中某项后的回调
+                  this.growthStageIndex = index;    // 更新选中下标状态
                 })
             }
             .layoutWeight(1)
