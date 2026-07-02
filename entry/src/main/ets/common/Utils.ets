@@ -5,10 +5,11 @@ import { AGINES_API_URL, AGINES_API_KEY } from './Constants';
 
 // 获取当前时间格式化字符串 (HH:mm)
 export function nowTime(): string {
-  const d = new Date();
-  const h = d.getHours().toString().padStart(2, '0'); // 获取小时数，变字符串，强制补齐两位
-  const m = d.getMinutes().toString().padStart(2, '0');
-  return `${h}:${m}`;
+  return new Date().toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false, // 24 小时制
+  });
 }
 
 // 从API响应JSON中提取文本内容
@@ -69,10 +70,14 @@ export interface AginesRequestBody {
 }
 
 // 将 DatePicker 选中的年月日格式化为 YYYY-MM-DD
+// DatePickerResult.month 为 0-indexed,直接交给 Date 构造器即可
+// 使用 en-CA locale 使标准库原生输出 YYYY-MM-DD,无需手动补零
 export function formatDate(year: number, month: number, day: number): string {
-  const m = (month + 1).toString().padStart(2, '0');
-  const d = day.toString().padStart(2, '0');
-  return `${year}-${m}-${d}`;
+  return new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(year, month, day));
 }
 
 // 按"【...】"将整段建议切分为多个小节字符串（含标题）
