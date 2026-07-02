@@ -374,6 +374,43 @@ export struct Advice {
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
+
+          // ========== 生成按钮 ==========
+          Button() {
+            if (this.loading) {
+              // 加载态：旋转图标 + 提示文字
+              Row({ space: 8 }) {
+                LoadingProgress()
+                  .width(18)
+                  .height(18)
+                  .color('#FFFFFF')
+                Text('正在生成建议...')
+                  .fontSize(15)
+                  .fontColor('#FFFFFF')
+                  .fontWeight(FontWeight.Bold)
+              }
+            } else {
+              // 正常态
+              Text('生成种植管理建议')
+                .fontSize(15)
+                .fontColor('#FFFFFF')
+                .fontWeight(FontWeight.Bold)
+            }
+          }
+          .type(ButtonType.Capsule)
+          .width('100%')
+          .height(48)
+          .backgroundColor('#2e7d32')
+          .margin({ top: 20 })
+          // 四项必填全部完成且非加载态时 opacity=1，否则半透明提示不可用
+          .opacity((this.cropTypeIndex >= 0 && this.growthStageIndex >= 0
+            && this.plantDate.trim().length > 0 && this.problemText.trim().length > 0
+            && !this.loading) ? 1 : 0.5)
+          // enabled 与 opacity 条件保持一致，双重保障防止误触
+          .enabled(this.cropTypeIndex >= 0 && this.growthStageIndex >= 0
+            && this.plantDate.trim().length > 0 && this.problemText.trim().length > 0
+            && !this.loading)
+          .onClick(() => this.onGenerate())
         }
         // 表单卡片样式：白色背景 + 圆角 + 轻阴影
         .width('100%')
@@ -381,42 +418,6 @@ export struct Advice {
         .backgroundColor('#FFFFFF')
         .borderRadius(12)
         .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 1 })
-
-        // ========== 生成按钮 ==========
-        Button() {
-          if (this.loading) {
-            // 加载态：旋转图标 + 提示文字
-            Row({ space: 8 }) {
-              LoadingProgress()
-                .width(18)
-                .height(18)
-                .color('#FFFFFF')
-              Text('正在生成建议...')
-                .fontSize(15)
-                .fontColor('#FFFFFF')
-                .fontWeight(FontWeight.Bold)
-            }
-          } else {
-            // 正常态
-            Text('生成种植管理建议')
-              .fontSize(15)
-              .fontColor('#FFFFFF')
-              .fontWeight(FontWeight.Bold)
-          }
-        }
-        .type(ButtonType.Capsule)
-        .width('100%')
-        .height(48)
-        .backgroundColor('#2e7d32')
-        // 四项必填全部完成且非加载态时 opacity=1，否则半透明提示不可用
-        .opacity((this.cropTypeIndex >= 0 && this.growthStageIndex >= 0
-          && this.plantDate.trim().length > 0 && this.problemText.trim().length > 0
-          && !this.loading) ? 1 : 0.5)
-        // enabled 与 opacity 条件保持一致，双重保障防止误触
-        .enabled(this.cropTypeIndex >= 0 && this.growthStageIndex >= 0
-          && this.plantDate.trim().length > 0 && this.problemText.trim().length > 0
-          && !this.loading)
-        .onClick(() => this.onGenerate())
 
         // ========== 建议结果卡片（仅在生成完成且非加载态时显示）==========
         if (this.adviceResult !== null && !this.loading) {
