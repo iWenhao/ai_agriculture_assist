@@ -14,6 +14,7 @@ import { AGINES_MODEL, ADVICE_PROMPT } from '../common/Constants';
 import {
   nowTime,
   formatDate,
+  todayStr,
   requestAgines,
   tryExtractJson,
   AginesRequestBody
@@ -154,7 +155,7 @@ export struct Advice {
 
     // 3. 发起API请求并处理响应
     const content = await requestAgines(requestBody);
-
+    console.log('转换过的种植管理建议', content)
     // 4. 解析结果：若以"[错误]"开头则截取错误信息，否则原样保留（JSON 解析交给 parseJsonSections）
     const finalContent: string = content.startsWith('[错误]') ? content.substring(4) : content;
     this.adviceResult = {
@@ -260,8 +261,8 @@ export struct Advice {
    */
   private getSectionStyle(title: string): SectionStyle {
     if (title === '田间管理建议') {
-      // 田间 → 农作物图标 corp.png / 极浅绿底 + 浅绿边
-      const s: SectionStyle = { icon: $r('app.media.corp'), bg: '#F6FBF4', border: '#DCEDC8' };
+      // 田间 → 农作物图标  / 极浅绿底 + 浅绿边
+      const s: SectionStyle = { icon: $r('app.media.flower2'), bg: '#F6FBF4', border: '#DCEDC8' };
       return s;
     } else if (title === '水肥一体化指导') {
       // 水肥 → 水滴图标 water.png / 极浅蓝底 + 浅蓝边
@@ -272,8 +273,8 @@ export struct Advice {
       const s: SectionStyle = { icon: $r('app.media.insect'), bg: '#FFF8F0', border: '#FFE0B2' };
       return s;
     } else if (title === '后续生产管理建议') {
-      // 后续生产 → 手册图标 book.png / 极浅紫底 + 浅紫边
-      const s: SectionStyle = { icon: $r('app.media.book'), bg: '#F8F4FA', border: '#E1BEE7' };
+      // 后续生产  / 极浅紫底 + 浅紫边
+      const s: SectionStyle = { icon: $r('app.media.advice2'), bg: '#F8F4FA', border: '#E1BEE7' };
       return s;
     }
     // 兜底：未匹配的中性灰样式
@@ -323,18 +324,6 @@ export struct Advice {
   }
 
   /**
-   * 获取今天的日期字符串（YYYY-MM-DD），用于结果卡片副标题
-   * 使用 en-CA locale 让标准库原生输出 YYYY-MM-DD
-   */
-  private getTodayStr(): string {
-    return new Intl.DateTimeFormat('en-CA', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
-  }
-
-  /**
    * 建议结果卡片构建器
    *
    * 渲染逻辑：
@@ -352,7 +341,7 @@ export struct Advice {
           .fontWeight(FontWeight.Bold)
           .fontColor('#005E0F')
           .width('100%')
-        Text(`由AI农技专家实时生成 · ${this.getTodayStr()}`)
+        Text(`由AI农技专家实时生成 · ${todayStr()}`)
           .fontSize(11)
           .fontColor('#7A8B7A')
           .width('100%')

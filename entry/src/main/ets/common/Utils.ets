@@ -80,6 +80,16 @@ export function formatDate(year: number, month: number, day: number): string {
   }).format(new Date(year, month, day));
 }
 
+// 获取今天的日期字符串（YYYY-MM-DD）
+// 使用 en-CA locale 让标准库原生输出 YYYY-MM-DD
+export function todayStr(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
 // 统一的 Agines 大模型非流式请求：发送请求体并返回解析后的文本内容
 // 返回值约定：成功返回正文；失败返回以 "[错误]" 开头的提示字符串
 export async function requestAgines(requestBody: AginesRequestBody): Promise<string> {
@@ -108,6 +118,7 @@ export async function requestAgines(requestBody: AginesRequestBody): Promise<str
       } else if (response.result) {
         resultStr = JSON.stringify(response.result);
       }
+      console.log('种植管理建议', resultStr)
       const content = extractDelta(resultStr);
       return content.length > 0 ? content : '[错误]未获取到有效回答';
     }
@@ -159,7 +170,7 @@ export function qnaScrollToBottom(scroller: Scroller): void {
   }, 50);
 }
 
-// ==================== JSON 解析辅助（种植顾问模块） ====================
+// ==================== 种植顾问模块  ====================
 
 /**
  * 从大模型返回的文本中尝试提取并解析 JSON 对象

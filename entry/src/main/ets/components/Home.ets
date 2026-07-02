@@ -61,7 +61,7 @@ export struct Home {
         method: http.RequestMethod.GET,
         // expectDataType: http.HttpDataType.STRING
       });
-      console.log('天气请求结果>>>>>>', JSON.stringify(response));
+      // console.log('天气请求结果>>>>>>', JSON.stringify(response));
       if (response.responseCode === 200) {
         this.parseWeatherText(response.result as string);
       }
