@@ -19,6 +19,7 @@ import {
   extractBody,
   formatDate,
   requestAgines,
+  tryExtractJson,
   AginesRequestBody
 } from '../common/Utils'
 
@@ -228,8 +229,9 @@ export struct Advice {
     Column({ space: 6 }) {
       // 标题行（卡片外）：图标 + 标题，不加粗，字号略小于正文
       Row({ space: 6 }) {
-        Text(data.icon)
-          .fontSize(13)
+        // Text(data.icon)
+        //   .fontSize(13)
+        Image(data.icon)
         Text(data.title)
           .fontSize(13)
           .fontColor('#166A16')
@@ -254,24 +256,26 @@ export struct Advice {
   }
 
   /**
-   * 根据【标题】查找对应的图标 / 背景色 / 边框色
+   * 根据分栏标题查找对应的图标 / 背景色 / 边框色
    * 配色采用 Material Design 50/100 档（最浅），柔和不刺眼
+   * 内部统一清洗【】书名号后再比较，兼容 JSON 路径（不带【】）和【】兜底路径（带【】）
    * 未匹配到预定义标题时使用中性灰样式兜底
    */
   private getSectionStyle(title: string): SectionStyle {
-    if (title === '【田间管理建议】') {
+    const key: string = title.replace(/【|】/g, '');
+    if (key === '田间管理建议') {
       // 田间 → 麦穗 / 极浅绿底 + 浅绿边
       const s: SectionStyle = { icon: '🌾', bg: '#F6FBF4', border: '#DCEDC8' };
       return s;
-    } else if (title === '【水肥一体化指导】') {
+    } else if (key === '水肥一体化指导') {
       // 水肥 → 水滴 / 极浅蓝底 + 浅蓝边
       const s: SectionStyle = { icon: '💧', bg: '#F2F8FD', border: '#BBDEFB' };
       return s;
-    } else if (title === '【病虫害预警】') {
+    } else if (key === '病虫害预警') {
       // 病虫害 → 警示三角 / 极浅橙底 + 浅橙边
       const s: SectionStyle = { icon: '⚠️', bg: '#FFF8F0', border: '#FFE0B2' };
       return s;
-    } else if (title === '【后续生产管理建议】') {
+    } else if (key === '后续生产管理建议') {
       // 后续生产 → 剪贴板 / 极浅紫底 + 浅紫边
       const s: SectionStyle = { icon: '📋', bg: '#F8F4FA', border: '#E1BEE7' };
       return s;
@@ -283,17 +287,79 @@ export struct Advice {
 
   /**
    * 把大模型返回的 content 拆分成"已计算好样式"的渲染数据数组
-   * 在普通方法里完成所有字符串处理 + 查表，避开 ArkUI Builder 的限制
-   * 标题字段额外去掉【】书名号，仅保留纯文字用于显示（查表仍用原始【】标题）
+   *
+   * 双轨解析：
+   * 1) 优先尝试 JSON 解析（结构稳定、不依赖正则）
+   * 2) 失败则降级到【】分段方案（兼容老格式输出或偶发模型抽风）
+   * 3) 两条路径都失败则返回空数组，UI 退到"无法分段时整体展示"
    */
   private buildSectionsData(content: string): SectionData[] {
+    // 路径 1：JSON 解析
+    const jsonResult: SectionData[] = this.parseJsonSections(content);
+    if (jsonResult.length > 0) {
+      return jsonResult;
+    }
+    // 路径 2：【】兜底
+    return this.parseBracketSections(content);
+  }
+
+  /**
+   * JSON 路径：从 content 中提取 {"sections":[{"title":"...","content":"..."}, ...]}
+   * 任一字段缺失或类型不匹配都跳过该条
+   */
+  private parseJsonSections(content: string): SectionData[] {
+    const obj: Record<string, Object> | null = tryExtractJson(content);
+    if (obj === null) {
+      return [];
+    }
+    const raw: Object = obj['sections'];
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const arr: Object[] = raw as Object[];
+    const result: SectionData[] = [];
+    for (let i: number = 0; i < arr.length; i++) {
+      const item: Object = arr[i];
+      if (item === null || typeof item !== 'object') {
+        continue;
+      }
+      const rec: Record<string, Object> = item as Record<string, Object>;
+      const t: Object = rec['title'];
+      const b: Object = rec['content'];
+      if (typeof t !== 'string' || typeof b !== 'string') {
+        continue;
+      }
+      const titleStr: string = t as string;
+      const bodyStr: string = b as string;
+      const s: SectionStyle = this.getSectionStyle(titleStr);
+      const d: SectionData = {
+        icon: s.icon,
+        title: titleStr,
+        body: bodyStr,
+        bg: s.bg,
+        border: s.border
+      };
+      result.push(d);
+    }
+    return result;
+  }
+
+  /**
+   * 【】兜底路径：按【】书名号切分文本，提取标题和正文
+   * 用于兼容模型偶尔输出非 JSON 格式的退化情况
+   */
+  private parseBracketSections(content: string): SectionData[] {
     const secs: string[] = splitSections(content);
     const len: number = secs.length;
     const result: SectionData[] = new Array<SectionData>(len);
+    let valid: number = 0;
     for (let i: number = 0; i < len; i++) {
       const sec: string = secs[i];
       const t: string = extractTitle(sec);
       const b: string = extractBody(sec);
+      if (b.length === 0) {
+        continue;
+      }
       const s: SectionStyle = this.getSectionStyle(t);
       const cleanTitle: string = t.replace(/【|】/g, '');
       const d: SectionData = {
@@ -303,9 +369,11 @@ export struct Advice {
         bg: s.bg,
         border: s.border
       };
-      result[i] = d;
+      result[valid] = d;
+      valid++;
     }
-    return result;
+    // 裁剪到实际写入的长度（避免空槽位）
+    return result.slice(0, valid);
   }
 
   /**
@@ -343,12 +411,6 @@ export struct Advice {
           .fontColor('#7A8B7A')
           .width('100%')
       }
-
-      // 分隔线
-      Divider()
-        .color('#eeeeee')
-        .strokeWidth(1)
-        .width('100%')
 
       // 正文区域：三种渲染策略
       if (this.adviceResult!.content.length === 0) {

@@ -205,3 +205,37 @@ export function qnaScrollToBottom(scroller: Scroller): void {
     scroller.scrollEdge(Edge.Bottom);
   }, 50);
 }
+
+// ==================== JSON 解析辅助（种植顾问模块） ====================
+
+/**
+ * 从大模型返回的文本中尝试提取并解析 JSON 对象
+ *
+ * 兼容以下几种"脏"返回：
+ * - 头尾有 ```json ``` 或 ``` 围栏
+ * - JSON 前后夹杂了少量说明文字（取首个 { 到末个 } 的子串）
+ * - 多余的空白与换行
+ *
+ * 解析失败返回 null，调用方应降级到原有的【】分段方案
+ */
+export function tryExtractJson(text: string): Record<string, Object> | null {
+  try {
+    let cleaned: string = text.trim();
+    // 去除 ```json / ``` 围栏
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '');
+    cleaned = cleaned.replace(/\s*```\s*$/i, '');
+    cleaned = cleaned.trim();
+    // 找首个 { 与末个 }，把中间内容作为 JSON 候选
+    const first: number = cleaned.indexOf('{');
+    const last: number = cleaned.lastIndexOf('}');
+    if (first < 0 || last <= first) {
+      return null;
+    }
+    const candidate: string = cleaned.substring(first, last + 1);
+    const obj: Record<string, Object> = JSON.parse(candidate) as Record<string, Object>;
+    return obj;
+  } catch (err) {
+    console.error('JSON 提取/解析失败:', err);
+    return null;
+  }
+}
