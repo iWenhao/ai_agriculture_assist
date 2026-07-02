@@ -37,7 +37,7 @@ interface AdviceResult {
  * 由 getSectionStyle 根据标题分发得到
  */
 interface SectionStyle {
-  icon: string; // 分类图标（emoji）
+  icon: Resource; // 分类图标（本地资源 $r('app.media.xxx')）
   bg: string; // 卡片背景色
   border: string; // 卡片边框色
 }
@@ -48,7 +48,7 @@ interface SectionStyle {
  * ForEach 只需遍历此数组并调用 ResultSection，避免在 UI 上下文里写逻辑
  */
 interface SectionData {
-  icon: string;
+  icon: Resource; // 分类图标（本地资源，由 getSectionStyle 注入）
   title: string;
   body: string;
   bg: string;
@@ -229,9 +229,10 @@ export struct Advice {
     Column({ space: 6 }) {
       // 标题行（卡片外）：图标 + 标题，不加粗，字号略小于正文
       Row({ space: 6 }) {
-        // Text(data.icon)
-        //   .fontSize(13)
         Image(data.icon)
+          .width(15)
+          .height(15)
+          .objectFit(ImageFit.Contain)
         Text(data.title)
           .fontSize(13)
           .fontColor('#166A16')
@@ -259,29 +260,30 @@ export struct Advice {
    * 根据分栏标题查找对应的图标 / 背景色 / 边框色
    * 配色采用 Material Design 50/100 档（最浅），柔和不刺眼
    * 内部统一清洗【】书名号后再比较，兼容 JSON 路径（不带【】）和【】兜底路径（带【】）
+   * 图标使用 entry/src/main/resources/base/media/ 下的本地 png 资源
    * 未匹配到预定义标题时使用中性灰样式兜底
    */
   private getSectionStyle(title: string): SectionStyle {
     const key: string = title.replace(/【|】/g, '');
     if (key === '田间管理建议') {
-      // 田间 → 麦穗 / 极浅绿底 + 浅绿边
-      const s: SectionStyle = { icon: '🌾', bg: '#F6FBF4', border: '#DCEDC8' };
+      // 田间 → 农作物图标 corp.png / 极浅绿底 + 浅绿边
+      const s: SectionStyle = { icon: $r('app.media.corp'), bg: '#F6FBF4', border: '#DCEDC8' };
       return s;
     } else if (key === '水肥一体化指导') {
-      // 水肥 → 水滴 / 极浅蓝底 + 浅蓝边
-      const s: SectionStyle = { icon: '💧', bg: '#F2F8FD', border: '#BBDEFB' };
+      // 水肥 → 水滴图标 water.png / 极浅蓝底 + 浅蓝边
+      const s: SectionStyle = { icon: $r('app.media.water'), bg: '#F2F8FD', border: '#BBDEFB' };
       return s;
     } else if (key === '病虫害预警') {
-      // 病虫害 → 警示三角 / 极浅橙底 + 浅橙边
-      const s: SectionStyle = { icon: '⚠️', bg: '#FFF8F0', border: '#FFE0B2' };
+      // 病虫害 → 虫子图标 insect.png / 极浅橙底 + 浅橙边
+      const s: SectionStyle = { icon: $r('app.media.insect'), bg: '#FFF8F0', border: '#FFE0B2' };
       return s;
     } else if (key === '后续生产管理建议') {
-      // 后续生产 → 剪贴板 / 极浅紫底 + 浅紫边
-      const s: SectionStyle = { icon: '📋', bg: '#F8F4FA', border: '#E1BEE7' };
+      // 后续生产 → 手册图标 book.png / 极浅紫底 + 浅紫边
+      const s: SectionStyle = { icon: $r('app.media.book'), bg: '#F8F4FA', border: '#E1BEE7' };
       return s;
     }
     // 兜底：未匹配的中性灰样式
-    const s: SectionStyle = { icon: '•', bg: '#FAFAFA', border: '#E0E0E0' };
+    const s: SectionStyle = { icon: $r('app.media.advice'), bg: '#FAFAFA', border: '#E0E0E0' };
     return s;
   }
 
