@@ -203,8 +203,8 @@ export struct Advice {
   FieldLabel(title: string, required: boolean) {
     Row() {
       Text(title)
-        .fontSize(14)
-        .fontColor('#333333')
+        .fontSize(12)
+        .fontColor('#4C5549')
       if (required) {
         Text(' *')
           .fontSize(14)
@@ -400,7 +400,6 @@ export struct Advice {
           Text('作物状况信息')
             .fontSize(15)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#2e7d32')
             .width('100%')
 
           // 作物类型 + 生长阶段：横向排列节省纵向空间
