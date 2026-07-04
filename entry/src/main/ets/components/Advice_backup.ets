@@ -10,10 +10,47 @@
  * - Constants: 模型名称(AGINES_MODEL)与系统提示词(ADVICE_PROMPT)
  * - Utils: 时间格式化、Markdown清洗、API请求封装、JSON容错解析等工具函数
  */
+import { AGINES_MODEL, ADVICE_PROMPT } from '../common/Constants';
 import {
+  nowTime,
   formatDate,
+  todayStr,
+  requestAgines,
+  tryExtractJson,
+  AginesRequestBody
 } from '../common/Utils'
 
+/**
+ * 建议结果数据模型
+ * 用于存储大模型返回的建议内容及生成时间戳
+ */
+interface AdviceResult {
+  content: string; // 建议正文（大模型返回的原始内容，可能为JSON或错误提示）
+  time: string // 建议生成的时间（用于展示时效性）
+}
+
+/**
+ * 单个分栏的视觉样式
+ * 由 getSectionStyle 根据标题分发得到
+ */
+interface SectionStyle {
+  icon: Resource; // 分类图标（本地资源 $r('app.media.xxx')）
+  bg: string; // 卡片背景色
+  border: string; // 卡片边框色
+}
+
+/**
+ * 一个分栏的完整渲染数据
+ * 由 parseJsonSections 在生成结果时一次性算好，
+ * ForEach 只需遍历此数组并调用 ResultSection，避免在 UI 上下文里写逻辑
+ */
+interface SectionData {
+  icon: Resource; // 分类图标（本地资源，由 getSectionStyle 注入）
+  title: string;
+  body: string;
+  bg: string;
+  border: string;
+}
 
 /**
  * 智能种植顾问组件
@@ -37,6 +74,14 @@ export struct Advice {
 
   /** 是否正在调用大模型生成建议，控制加载动画与按钮禁用态 */
   @State loading: boolean = false;
+  /** 生成的建议结果，null表示尚未生成或正在生成中 */
+  @State adviceResult: AdviceResult | null = null;
+  /**
+   * 预处理好的分栏渲染数据（图标/标题/正文/配色）
+   * 在 onGenerate 拿到 content 后一次性算好，ForEach 直接遍历此数组
+   * 避免在 ArkUI Builder 上下文里写中间变量和方法调用
+   */
+  @State sectionsData: SectionData[] = [];
   /**
    * 作物类型下拉选项
    * SelectOption 结构：{ value?: string | Resource, icon?: Resource }
@@ -86,8 +131,9 @@ export struct Advice {
       return;
     }
 
-    // 进入加载态
+    // 进入加载态，清空上一次的结果
     this.loading = true;
+    this.adviceResult = null;
 
     // 1. 从选项数组中提取选中的文本值，拼装为用户消息内容
     const cropName = this.cropTypeOptions[this.cropTypeIndex].value as string;
@@ -100,6 +146,27 @@ export struct Advice {
         `生长阶段：${stageName}\n` +
         `种植时间：${date}\n` +
         `当前问题：${problem}`;
+
+    // 2. 构造请求体：system角色注入专属提示词，user角色传入用户输入
+    const requestBody: AginesRequestBody = {
+      model: AGINES_MODEL,
+      messages: [
+        { role: 'system', content: ADVICE_PROMPT },
+        { role: 'user', content: userContent }
+      ]
+    };
+
+    // 3. 发起API请求并处理响应
+    const content = await requestAgines(requestBody);
+    console.log('转换过的种植管理建议', content)
+    // 4. 解析结果：若以"[错误]"开头则截取错误信息，否则原样保留（JSON 解析交给 parseJsonSections）
+    const finalContent: string = content.startsWith('[错误]') ? content.substring(4) : content;
+    this.adviceResult = {
+      content: finalContent,
+      time: nowTime()
+    };
+    // 5. 一次性解析JSON并算好所有分栏的样式数据，ForEach 直接遍历，避免 Builder 内做逻辑
+    this.sectionsData = this.parseJsonSections(finalContent);
 
     // 退出加载态
     this.loading = false;
@@ -116,11 +183,11 @@ export struct Advice {
    */
   private showDatePicker(): void {
     this.getUIContext().showDatePickerDialog({
-      start: new Date('2020-01-01'), // 可选日期范围的起始值
-      end: new Date(), // 可选日期范围的结束值（当天）
-      selected: new Date(), // 弹窗打开时默认选中的日期
-      onAccept: (value: DatePickerResult) => { // 用户点击"确定"后的回调
-        this.plantDate = formatDate(value.year, value.month, value.day); // 格式化为 YYYY-MM-DD 并写入状态
+      start: new Date('2020-01-01'),     // 可选日期范围的起始值
+      end: new Date(),                    // 可选日期范围的结束值（当天）
+      selected: new Date(),               // 弹窗打开时默认选中的日期
+      onAccept: (value: DatePickerResult) => {  // 用户点击"确定"后的回调
+        this.plantDate = formatDate(value.year, value.month, value.day);  // 格式化为 YYYY-MM-DD 并写入状态
       }
     });
   }
@@ -144,6 +211,181 @@ export struct Advice {
           .fontColor('#E53935')
       }
     }
+  }
+
+  /**
+   * 结果分段块构建器
+   * 将大模型返回的 JSON 中的每个 section 渲染为"标题行 + 内容卡片"两个独立元素
+   *
+   * 视觉规范：
+   * - 标题行：纯文字 + 图标，无背景/无边框/无圆角，字色 #166A16，正常字重
+   * - 内容卡片：1px 浅边框 + 8px 圆角 + 浅色背景，仅包裹正文
+   * - 标题与卡片之间留 6px 间距，各分栏之间在 ForEach 外层 Column 控制
+   *
+   * @param data - 单个分栏的完整渲染数据（由 parseJsonSections 预先生成）
+   */
+  @Builder
+  ResultSection(data: SectionData) {
+    Column({ space: 6 }) {
+      // 标题行（卡片外）：图标 + 标题，不加粗，字号略小于正文
+      Row({ space: 6 }) {
+        Image(data.icon)
+          .width(15)
+          .height(15)
+          .objectFit(ImageFit.Contain)
+        Text(data.title)
+          .fontSize(13)
+          .fontColor('#166A16')
+      }
+      .width('100%')
+
+      // 内容卡片（只包正文）：浅背景 + 浅边框 + 圆角
+      Text(data.body)
+        .fontSize(14)
+        .fontColor('#3c4a3c')
+        .lineHeight(22)
+        .width('100%')
+        .padding(12)
+        .backgroundColor(data.bg)
+        .borderRadius(8)
+        .border({
+          width: 1,
+          color: data.border
+        })
+    }
+    .width('100%')
+  }
+
+  /**
+   * 根据分栏标题查找对应的图标 / 背景色 / 边框色
+   * 配色采用 Material Design 50/100 档（最浅），柔和不刺眼
+   * 图标使用 entry/src/main/resources/base/media/ 下的本地 png 资源
+   * 未匹配到预定义标题时使用中性灰样式兜底
+   */
+  private getSectionStyle(title: string): SectionStyle {
+    if (title === '田间管理建议') {
+      // 田间 → 农作物图标  / 极浅绿底 + 浅绿边
+      const s: SectionStyle = { icon: $r('app.media.flower2'), bg: '#F6FBF4', border: '#DCEDC8' };
+      return s;
+    } else if (title === '水肥一体化指导') {
+      // 水肥 → 水滴图标 water.png / 极浅蓝底 + 浅蓝边
+      const s: SectionStyle = { icon: $r('app.media.water'), bg: '#F2F8FD', border: '#BBDEFB' };
+      return s;
+    } else if (title === '病虫害预警') {
+      // 病虫害 → 虫子图标 insect.png / 极浅橙底 + 浅橙边
+      const s: SectionStyle = { icon: $r('app.media.insect'), bg: '#FFF8F0', border: '#FFE0B2' };
+      return s;
+    } else if (title === '后续生产管理建议') {
+      // 后续生产  / 极浅紫底 + 浅紫边
+      const s: SectionStyle = { icon: $r('app.media.advice2'), bg: '#F8F4FA', border: '#E1BEE7' };
+      return s;
+    }
+    // 兜底：未匹配的中性灰样式
+    const s: SectionStyle = { icon: $r('app.media.advice'), bg: '#FAFAFA', border: '#E0E0E0' };
+    return s;
+  }
+
+  /**
+   * 把大模型返回的 content 解析成"已计算好样式"的渲染数据数组
+   * 解析失败返回空数组，UI 自动退到"整体原文展示"
+   */
+  private parseJsonSections(content: string): SectionData[] {
+    const obj: Record<string, Object> | null = tryExtractJson(content);
+    if (obj === null) {
+      return [];
+    }
+    const raw: Object = obj['sections'];
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const arr: Object[] = raw as Object[];
+    const result: SectionData[] = [];
+    for (let i: number = 0; i < arr.length; i++) {
+      const item: Object = arr[i];
+      if (item === null || typeof item !== 'object') {
+        continue;
+      }
+      const rec: Record<string, Object> = item as Record<string, Object>;
+      const t: Object = rec['title'];
+      const b: Object = rec['content'];
+      if (typeof t !== 'string' || typeof b !== 'string') {
+        continue;
+      }
+      const titleStr: string = t as string;
+      const bodyStr: string = b as string;
+      const s: SectionStyle = this.getSectionStyle(titleStr);
+      const d: SectionData = {
+        icon: s.icon,
+        title: titleStr,
+        body: bodyStr,
+        bg: s.bg,
+        border: s.border
+      };
+      result.push(d);
+    }
+    return result;
+  }
+
+  /**
+   * 建议结果卡片构建器
+   *
+   * 渲染逻辑：
+   * - 内容为空时显示占位提示
+   * - content 可解析为 JSON 分栏时，逐段渲染为 ResultSection
+   * - 无法解析为 JSON 时整体作为纯文本展示（兼容非标准格式的AI回复）
+   */
+  @Builder
+  AdviceResultCard() {
+    Column({ space: 12 }) {
+      // 卡片头部：主标题 + 副标题（AI 来源 + 今天的年月日）
+      Column({ space: 4 }) {
+        Text('个性化种植管理建议')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#005E0F')
+          .width('100%')
+        Text(`由AI农技专家实时生成 · ${todayStr()}`)
+          .fontSize(11)
+          .fontColor('#7A8B7A')
+          .width('100%')
+      }
+
+      // 正文区域：三种渲染策略
+      if (this.adviceResult!.content.length === 0) {
+        // 策略1：空内容占位
+        Text('（暂无内容）')
+          .fontSize(14)
+          .fontColor('#999999')
+          .width('100%')
+      } else if (this.sectionsData.length > 0) {
+        // 策略2：按 JSON sections 分段渲染，数据已在 onGenerate 里预处理为 SectionData[]
+        // 外层 Column space 控制各分栏之间的间距，每个分栏内部 ResultSection 自己控制标题/卡片间距
+        Column({ space: 22 }) {
+          ForEach(this.sectionsData, (data: SectionData) => {
+            this.ResultSection(data);
+          })
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+      } else {
+        // 策略3：无法分段时整体展示
+        Text(this.adviceResult!.content)
+          .fontSize(14)
+          .fontColor('#444444')
+          .lineHeight(22)
+          .width('100%')
+      }
+    }
+    .width('100%')
+    .padding(20)
+    .backgroundColor('#FFFFFF')
+    .borderRadius(12)
+    // 左侧橙色边框作为视觉标识，区分于表单卡片
+    .border({
+      width: { left: 4 },
+      color: { left: '#FFA000' }
+    })
+    .shadow({ radius: 6, color: 'rgba(0,0,0,0.06)', offsetY: 2 })
   }
 
   // ==================== 页面主结构 ====================
@@ -179,8 +421,8 @@ export struct Advice {
                 .backgroundColor('#f7f8f5')         // 选择器背景色（浅灰绿）
                 .borderRadius(8)                    // 选择器圆角
                 .divider({ strokeWidth: 0 })        // 取消选项之间的下划线分隔
-                .onSelect((index: number) => { // 用户选中某项后的回调，index 为选中项在数组中的下标
-                  this.cropTypeIndex = index; // 更新选中下标状态，触发 UI 刷新
+                .onSelect((index: number) => {     // 用户选中某项后的回调，index 为选中项在数组中的下标
+                  this.cropTypeIndex = index;       // 更新选中下标状态，触发 UI 刷新
                 })
             }
             .layoutWeight(1)
@@ -202,8 +444,8 @@ export struct Advice {
                 .backgroundColor('#f7f8f5')         // 选择器背景色
                 .borderRadius(8)                    // 选择器圆角
                 .divider({ strokeWidth: 0 })        // 取消选项之间的下划线分隔
-                .onSelect((index: number) => { // 用户选中某项后的回调
-                  this.growthStageIndex = index; // 更新选中下标状态
+                .onSelect((index: number) => {     // 用户选中某项后的回调
+                  this.growthStageIndex = index;    // 更新选中下标状态
                 })
             }
             .layoutWeight(1)
@@ -294,6 +536,14 @@ export struct Advice {
         .backgroundColor('#FFFFFF')
         .borderRadius(12)
         .shadow({ radius: 4, color: 'rgba(0,0,0,0.04)', offsetY: 1 })
+
+        // ========== 建议结果卡片（仅在生成完成且非加载态时显示）==========
+        if (this.adviceResult !== null && !this.loading) {
+          this.AdviceResultCard()
+        }
+
+        // 底部安全留白，避免最后的内容被导航栏或手势条遮挡
+        Blank().height(8)
       }
       .width('100%')
       .padding({
