@@ -2,6 +2,7 @@
 import { Home } from '../components/Home'
 import { Qna } from '../components/Qna'
 import { Advice } from '../components/Advice'
+import { Diagnose } from '../components/Diagnose'
 
 interface TabItem {
   title: string,
@@ -16,6 +17,7 @@ struct Index {
     { title: '首页', icon: $r('app.media.home'), activeIcon: $r('app.media.home_active') },
     { title: 'AI问答', icon: $r('app.media.flower'), activeIcon: $r('app.media.flower_active') },
     { title: '种植建议', icon: $r('app.media.advice'), activeIcon: $r('app.media.advice_active') },
+    { title: 'AI诊断', icon: $r('app.media.diagnose'), activeIcon: $r('app.media.diagnose_active') },
   ]
   @State currentIdx: number = 0
 
@@ -50,6 +52,8 @@ struct Index {
               Qna()
             } else if (idx === 2) {
               Advice()
+            } else if (idx === 3) {
+              Diagnose()
             }
           }
           // 选项卡样式，是一个函数

@@ -3,6 +3,14 @@
     {
       "name": "start_window_background",
       "value": "#000000"
+    },
+    {
+      "name": "diagnose_brand",
+      "value": "#2e7d32"
+    },
+    {
+      "name": "diagnose_text_inverse",
+      "value": "#FFFFFF"
     }
   ]
 }
