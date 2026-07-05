@@ -146,7 +146,7 @@ export struct Advice {
         `生长阶段：${stageName}\n` +
         `种植时间：${date}\n` +
         `当前问题：${problem}`;
-
+    console.log('作物状况信息', userContent);
     // 2. 构造请求体：system角色注入专属提示词，user角色传入用户输入
     const requestBody: AginesRequestBody = {
       model: AGINES_MODEL,
@@ -176,18 +176,14 @@ export struct Advice {
    * 弹出系统原生日期选择器
    * 选择范围：2020-01-01 至 今天
    * 确认后通过 formatDate 格式化为 YYYY-MM-DD 写入 plantDate
-   *
-   * 注意：DatePickerDialog.show(...) 从 API 18 起已废弃，
-   * 此处改用 UIContext 上的 showDatePickerDialog(...) 入口，
-   * 参数选项与 DatePickerDialogOptions 保持一致。
    */
   private showDatePicker(): void {
     this.getUIContext().showDatePickerDialog({
-      start: new Date('2020-01-01'),     // 可选日期范围的起始值
-      end: new Date(),                    // 可选日期范围的结束值（当天）
-      selected: new Date(),               // 弹窗打开时默认选中的日期
-      onAccept: (value: DatePickerResult) => {  // 用户点击"确定"后的回调
-        this.plantDate = formatDate(value.year, value.month, value.day);  // 格式化为 YYYY-MM-DD 并写入状态
+      start: new Date('2020-01-01'), // 可选日期范围的起始值
+      end: new Date(), // 可选日期范围的结束值（当天）
+      selected: new Date(), // 弹窗打开时默认选中的日期
+      onAccept: (value: DatePickerResult) => { // 用户点击"确定"后的回调
+        this.plantDate = formatDate(value.year, value.month, value.day); // 格式化为 YYYY-MM-DD 并写入状态
       }
     });
   }
@@ -421,8 +417,8 @@ export struct Advice {
                 .backgroundColor('#f7f8f5')         // 选择器背景色（浅灰绿）
                 .borderRadius(8)                    // 选择器圆角
                 .divider({ strokeWidth: 0 })        // 取消选项之间的下划线分隔
-                .onSelect((index: number) => {     // 用户选中某项后的回调，index 为选中项在数组中的下标
-                  this.cropTypeIndex = index;       // 更新选中下标状态，触发 UI 刷新
+                .onSelect((index: number) => { // 用户选中某项后的回调，index 为选中项在数组中的下标
+                  this.cropTypeIndex = index; // 更新选中下标状态，触发 UI 刷新
                 })
             }
             .layoutWeight(1)
@@ -444,8 +440,8 @@ export struct Advice {
                 .backgroundColor('#f7f8f5')         // 选择器背景色
                 .borderRadius(8)                    // 选择器圆角
                 .divider({ strokeWidth: 0 })        // 取消选项之间的下划线分隔
-                .onSelect((index: number) => {     // 用户选中某项后的回调
-                  this.growthStageIndex = index;    // 更新选中下标状态
+                .onSelect((index: number) => { // 用户选中某项后的回调
+                  this.growthStageIndex = index; // 更新选中下标状态
                 })
             }
             .layoutWeight(1)

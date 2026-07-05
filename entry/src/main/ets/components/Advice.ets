@@ -100,19 +100,15 @@ export struct Advice {
         `生长阶段：${stageName}\n` +
         `种植时间：${date}\n` +
         `当前问题：${problem}`;
-
+    console.log('作物状况信息', userContent);
     // 退出加载态
-    this.loading = false;
+    // this.loading = false;
   }
 
   /**
    * 弹出系统原生日期选择器
    * 选择范围：2020-01-01 至 今天
    * 确认后通过 formatDate 格式化为 YYYY-MM-DD 写入 plantDate
-   *
-   * 注意：DatePickerDialog.show(...) 从 API 18 起已废弃，
-   * 此处改用 UIContext 上的 showDatePickerDialog(...) 入口，
-   * 参数选项与 DatePickerDialogOptions 保持一致。
    */
   private showDatePicker(): void {
     this.getUIContext().showDatePickerDialog({
