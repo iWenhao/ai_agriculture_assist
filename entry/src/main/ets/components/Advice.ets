@@ -251,6 +251,7 @@ export struct Advice {
       }
 
       // 正文区域：三种渲染策略
+      // ! — 非空断言，告诉编译器"我知道这个值一定不是 null/undefined，不用报错
       if (this.adviceResult!.content.length === 0) {
         // 策略1：空内容占位
         Text('（暂无内容）')
