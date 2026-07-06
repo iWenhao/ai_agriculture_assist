@@ -16,7 +16,6 @@ import {
   formatDate,
   todayStr,
   requestAgines,
-  tryExtractJson,
   parseAdviceSections,
   AginesRequestBody,
   SectionData
@@ -88,50 +87,46 @@ export struct Advice {
   // ==================== 业务逻辑 ====================
 
   /**
-   * 生成种植建议的核心方法
+   * 用户点击"生成种植管理建议"按钮时触发
    *
-   * 执行流程：
-   * 1. 防重复提交检查
-   * 2. 四项必填字段校验
-   * 3. 拼装用户输入为结构化文本
-   * 4. 构造含系统提示词的请求体
-   * 5. 调用 Agines API 获取结果
-   * 6. 记录时间戳并解析JSON为分栏数据
+   * 整个函数 5 个步骤，按顺序读即可：
+   *   1）防呆：如果正在生成中，按钮的重复点击直接忽略
+   *   2）校验：四个必填字段任一为空也直接返回（按钮的 enabled 已经做了视觉反馈）
+   *   3）拼装：把表单里的下拉/日期/输入框拼成一段文字
+   *   4）调用：把这段文字连同 system 提示词一起发给 AI
+   *   5）渲染：拿到结果后更新界面状态
    */
   private async onGenerate(): Promise<void> {
-    // 防呆：加载中禁止重复触发
+    // 1）防呆：加载中禁止重复触发
     if (this.loading) {
       return;
     }
 
-    // 校验：四个字段任一为空则静默返回（按钮已通过enabled属性做了视觉反馈）
-    /* 为什么加trim? 去除字符串首尾的空白字符,如空格，回车
-      在表单输入场景（尤其是移动端）中，用户很容易误触空格键或复制粘贴时带入不可见字符。
-      防止“假值”通过校验,ArkTS 中，字符串 ' '（纯空格）的 length > 0 为 true，且布尔值为 true。
-      不加 trim： 用户只输入了几个空格，系统会认为“已填写”，按钮变亮可点击，但实际提交的是无效数据。
-      加了 trim： ' '.trim().length === 0，系统正确识别为空值，保持按钮禁用态。*/
-    if (this.cropTypeIndex < 0 || this.growthStageIndex < 0
-      || this.plantDate.trim().length === 0 || this.problemText.trim().length === 0) {
+    // 2）校验：四个字段任一为空都直接返回
+    //    注意这里用 trim().length 判断，能拦截"只敲了几个空格"的假填值
+    if (this.cropTypeIndex < 0
+      || this.growthStageIndex < 0
+      || this.plantDate.trim().length === 0
+      || this.problemText.trim().length === 0) {
       return;
     }
 
-    // 进入加载态，清空上一次的结果
+    // 进入加载态（按钮变成转圈 + "正在生成..."），同时清掉上一次的结果
     this.loading = true;
     this.adviceResult = null;
 
-    // 1. 从选项数组中提取选中的文本值，拼装为用户消息内容
-    const cropName = this.cropTypeOptions[this.cropTypeIndex].value as string;
-    const stageName = this.growthStageOptions[this.growthStageIndex].value as string;
-    const date = this.plantDate.trim();
-    const problem = this.problemText.trim();
-
+    // 3）拼装用户输入：把下拉框、日期、问题描述拼成一段结构化文字
+    const cropName: string = this.cropTypeOptions[this.cropTypeIndex].value as string;
+    const stageName: string = this.growthStageOptions[this.growthStageIndex].value as string;
     const userContent: string =
       `作物种类：${cropName}\n` +
         `生长阶段：${stageName}\n` +
-        `种植时间：${date}\n` +
-        `当前问题：${problem}`;
+        `种植时间：${this.plantDate.trim()}\n` +
+        `当前问题：${this.problemText.trim()}`;
     console.log('作物状况信息', userContent);
-    // 2. 构造请求体：system角色注入专属提示词，user角色传入用户输入
+
+    // 4）构造请求体：system 角色注入提示词，user 角色传入用户输入
+    //    （大模型会先看 system，再看 user，按这个顺序理解对话）
     const requestBody: AginesRequestBody = {
       model: AGINES_MODEL,
       messages: [
@@ -139,20 +134,15 @@ export struct Advice {
         { role: 'user', content: userContent }
       ]
     };
+    const content: string = await requestAgines(requestBody);
+    console.log('转换过的种植管理建议', content);
 
-    // 3. 发起API请求并处理响应
-    const content = await requestAgines(requestBody);
-    console.log('转换过的种植管理建议', content)
-    // 4. 解析结果：若以"[错误]"开头则截取错误信息，否则原样保留（JSON 解析交给 parseAdviceSections）
+    // 5）渲染：判断返回内容是错误还是正常结果，再更新界面
+    //    - 如果是错误（以 "[错误]" 开头），就去掉前缀，整段作为纯文本显示
+    //    - 如果是正常结果，原样交给 parseAdviceSections 解析成分栏数据
     const finalContent: string = content.startsWith('[错误]') ? content.substring(4) : content;
-    this.adviceResult = {
-      content: finalContent,
-      time: nowTime()
-    };
-    // 5. 一次性解析JSON并算好所有分栏的样式数据，ForEach 直接遍历，避免 Builder 内做逻辑
+    this.adviceResult = { content: finalContent, time: nowTime() };
     this.sectionsData = parseAdviceSections(finalContent);
-
-    // 退出加载态
     this.loading = false;
   }
 
