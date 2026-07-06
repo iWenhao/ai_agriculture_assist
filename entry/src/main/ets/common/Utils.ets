@@ -218,7 +218,99 @@ export function tryExtractJson(text: string): Record<string, Object> | null {
     return null;
   }
 }
-// ==================== 以下为新增工具函数（种植顾问模块） ====================
+
+/**
+ * 单个分栏的视觉样式
+ * 由 getAdviceSectionStyle 根据标题分发得到
+ */
+export interface SectionStyle {
+  icon: Resource; // 分类图标（本地资源 $r('app.media.xxx')）
+  bg: string; // 卡片背景色
+  border: string; // 卡片边框色
+}
+
+/**
+ * 一个分栏的完整渲染数据
+ * 由 parseAdviceSections 在生成结果时一次性算好，
+ * ForEach 只需遍历此数组并调用 UI 渲染方法，避免在 Builder 上下文里写逻辑
+ */
+export interface SectionData {
+  icon: Resource; // 分类图标（本地资源，由 getAdviceSectionStyle 注入）
+  title: string;
+  body: string;
+  bg: string;
+  border: string;
+}
+
+/**
+ * 根据分栏标题查找对应的图标 / 背景色 / 边框色
+ * 配色采用 Material Design 50/100 档（最浅），柔和不刺眼
+ * 图标使用 entry/src/main/resources/base/media/ 下的本地 png 资源
+ * 未匹配到预定义标题时使用中性灰样式兜底
+ */
+export function getAdviceSectionStyle(title: string): SectionStyle {
+  if (title === '田间管理建议') {
+    // 田间 → 农作物图标  / 极浅绿底 + 浅绿边
+    const s: SectionStyle = { icon: $r('app.media.flower2'), bg: '#F6FBF4', border: '#DCEDC8' };
+    return s;
+  } else if (title === '水肥一体化指导') {
+    // 水肥 → 水滴图标 water.png / 极浅蓝底 + 浅蓝边
+    const s: SectionStyle = { icon: $r('app.media.water'), bg: '#F2F8FD', border: '#BBDEFB' };
+    return s;
+  } else if (title === '病虫害预警') {
+    // 病虫害 → 虫子图标 insect.png / 极浅橙底 + 浅橙边
+    const s: SectionStyle = { icon: $r('app.media.insect'), bg: '#FFF8F0', border: '#FFE0B2' };
+    return s;
+  } else if (title === '后续生产管理建议') {
+    // 后续生产  / 极浅紫底 + 浅紫边
+    const s: SectionStyle = { icon: $r('app.media.advice2'), bg: '#F8F4FA', border: '#E1BEE7' };
+    return s;
+  }
+  // 兜底：未匹配的中性灰样式
+  const s: SectionStyle = { icon: $r('app.media.advice'), bg: '#FAFAFA', border: '#E0E0E0' };
+  return s;
+}
+
+/**
+ * 把大模型返回的 content 解析成"已计算好样式"的渲染数据数组
+ * 解析失败返回空数组，UI 自动退到"整体原文展示"
+ */
+export function parseAdviceSections(content: string): SectionData[] {
+  const obj: Record<string, Object> | null = tryExtractJson(content);
+  if (obj === null) {
+    return [];
+  }
+  const raw: Object = obj['sections'];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const arr: Object[] = raw as Object[];
+  const result: SectionData[] = [];
+  for (let i: number = 0; i < arr.length; i++) {
+    const item: Object = arr[i];
+    if (item === null || typeof item !== 'object') {
+      continue;
+    }
+    const rec: Record<string, Object> = item as Record<string, Object>;
+    const t: Object = rec['title'];
+    const b: Object = rec['content'];
+    if (typeof t !== 'string' || typeof b !== 'string') {
+      continue;
+    }
+    const titleStr: string = t as string;
+    const bodyStr: string = b as string;
+    const s: SectionStyle = getAdviceSectionStyle(titleStr);
+    const d: SectionData = {
+      icon: s.icon,
+      title: titleStr,
+      body: bodyStr,
+      bg: s.bg,
+      border: s.border
+    };
+    result.push(d);
+  }
+  return result;
+}
 
 // 适配后端API的消息结构
 export interface AginesMessage {
